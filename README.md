@@ -1,6 +1,6 @@
 # DjehutiRoute
 
-DjehutiRoute is an MIT-licensed research workspace for electronics design tools,
+DjehutiRoute is a mixed-license research workspace for electronics design tools,
 PCB routing, and manufacturable board output.
 
 The long-term goal is a clean, open routing engine that can support hobby and
@@ -22,7 +22,7 @@ existing autorouters.
 
 - `libs/djehuti_route` - planned router library.
 - `examples` - small demos and experiments.
-- `apps/DjehutiElectronicsLab` - electronics design tool research app.
+- `apps/DjehutiElectronicsLab` - GPL-3.0 electronics design tool research app.
 - `docs` - architecture notes, requirements, and process notes.
 
 ## Routing Direction
@@ -54,4 +54,13 @@ adapters, sourcing records, and agent-assisted electronics workflows.
 
 ## License
 
-MIT. See `LICENSE`.
+This repository is intentionally mixed-license:
+
+- `libs/djehuti_route`, router demos, and general routing architecture are MIT
+  unless a file says otherwise.
+- `apps/DjehutiElectronicsLab` is GPL-3.0 because it is the SPICE/Xyce-oriented
+  electronics tool.
+
+See `LICENSE` for the top-level MIT license and
+`apps/DjehutiElectronicsLab/LICENSE` for the GPL-3.0 electronics tool license.
+The boundary is documented in `docs/LICENSING.md`.
