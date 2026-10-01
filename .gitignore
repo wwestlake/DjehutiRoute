@@ -1,0 +1,32 @@
+# Build outputs
+build/
+bin/
+out/
+dist/
+cmake-build-*/
+
+# CMake / IDE generated state
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.user
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Local configuration
+*.local.json
+config/*.local.json
+
+# Generated simulation/routing runs
+apps/DjehutiElectronicsLab/prototype/sim/xyce/runs/
+examples/**/runs/
+
+# Windows/macOS noise
+Thumbs.db
+.DS_Store
