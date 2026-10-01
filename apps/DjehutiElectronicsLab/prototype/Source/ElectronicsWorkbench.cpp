@@ -274,6 +274,8 @@ private:
     {
         add({ "resistor", "Resistor", "Passive" });
         add({ "capacitor", "Capacitor", "Passive" });
+        add({ "inductor", "Inductor", "Passive" });
+        add({ "diode", "Diode", "Discrete" });
         add({ "power_bus", "Power Bus", "Bus" });
         add({ "ground_bus", "Ground Bus", "Bus" });
         add({ "battery", "Battery", "Source" });
@@ -390,7 +392,9 @@ public:
             return;
 
         auto& instance = instances[(size_t)selectedInstance];
-        instance.rotation = (instance.rotation + 90) % 360;
+        const auto symbol = symbolFor(instance.symbolId);
+        const auto step = symbol.rotationStepDegrees > 0 ? symbol.rotationStepDegrees : 90;
+        instance.rotation = (instance.rotation + step) % 360;
         if (onStatus) onStatus("Rotated " + instance.refdes + " to " + juce::String(instance.rotation) + " degrees.");
         notifySelection();
         repaint();
@@ -486,6 +490,16 @@ public:
             else if (instance.symbolId == "capacitor")
             {
                 netlist << instance.refdes << " " << pinNet("1") << " " << pinNet("2") << " " << instance.value << "\n";
+            }
+            else if (instance.symbolId == "inductor")
+            {
+                netlist << instance.refdes << " " << pinNet("1") << " " << pinNet("2") << " " << instance.value << "\n";
+            }
+            else if (instance.symbolId == "diode")
+            {
+                netlist << instance.refdes << " " << pinNet("A") << " " << pinNet("K") << " " << instance.value << "\n";
+                netlist << ".MODEL " << instance.value << " D\n";
+                hasProbe = true;
             }
             else if (instance.symbolId == "voltage_source")
             {
@@ -682,6 +696,7 @@ private:
         juce::String title;
         juce::Rectangle<float> bounds;
         std::vector<PinDef> pins;
+        int rotationStepDegrees = 90;
     };
 
     struct Instance
@@ -804,6 +819,10 @@ private:
     {
         if (id == "capacitor")
             return { id, "C", { -30, -18, 60, 36 }, { { "1", { -42, 0 } }, { "2", { 42, 0 } } } };
+        if (id == "inductor")
+            return { id, "L", { -34, -18, 68, 36 }, { { "1", { -54, 0 } }, { "2", { 54, 0 } } }, 45 };
+        if (id == "diode")
+            return { id, "D", { -28, -24, 56, 48 }, { { "A", { -54, 0 } }, { "K", { 54, 0 } } }, 45 };
         if (id == "power_bus")
             return { id, "PWR", { -42, -14, 84, 28 }, { { "VBUS", { 0, 28 } } } };
         if (id == "ground_bus")
@@ -831,6 +850,8 @@ private:
     {
         if (symbolId == "resistor") return "10k";
         if (symbolId == "capacitor") return "1u";
+        if (symbolId == "inductor") return "10m";
+        if (symbolId == "diode") return "1N4148";
         if (symbolId == "power_bus") return "+V";
         if (symbolId == "ground_bus") return "0";
         if (symbolId == "battery") return "9";
@@ -846,6 +867,8 @@ private:
     {
         if (symbolId == "resistor") return "passive.resistor";
         if (symbolId == "capacitor") return "passive.capacitor";
+        if (symbolId == "inductor") return "passive.inductor";
+        if (symbolId == "diode") return "discrete.diode";
         if (symbolId == "power_bus") return "net.power_bus";
         if (symbolId == "ground" || symbolId == "ground_bus") return "net.ground_reference";
         if (symbolId == "battery") return "source.battery";
@@ -885,6 +908,10 @@ private:
             return "{ \"resistance\": { \"value\": " + quote(instance.value) + ", \"unit\": \"ohm\" } }";
         if (symbolId == "capacitor")
             return "{ \"capacitance\": { \"value\": " + quote(instance.value) + ", \"unit\": \"F\" } }";
+        if (symbolId == "inductor")
+            return "{ \"inductance\": { \"value\": " + quote(instance.value) + ", \"unit\": \"H\" } }";
+        if (symbolId == "diode")
+            return "{ \"model\": " + quote(instance.value) + " }";
         if (symbolId == "power_bus")
             return "{ \"name\": " + quote(instance.busName) + ", \"voltageHint\": null }";
         if (symbolId == "ground" || symbolId == "ground_bus")
@@ -1185,6 +1212,8 @@ private:
                             symbolId == "ac_voltage_source" ? juce::String("VAC") :
                             symbolId == "signal_source" ? juce::String("SIG") :
                             symbolId == "capacitor" ? juce::String("C") :
+                            symbolId == "inductor" ? juce::String("L") :
+                            symbolId == "diode" ? juce::String("D") :
                             symbolId == "resistor" ? juce::String("R") :
                             symbolId == "opamp_741" ? juce::String("U") :
                             symbolId == "npn" ? juce::String("Q") :
@@ -1283,6 +1312,33 @@ private:
             g.drawLine(8.0f, 0.0f, 42.0f, 0.0f, 1.8f);
             g.drawVerticalLine((int)(body.getCentreX() - 6), body.getY(), body.getBottom());
             g.drawVerticalLine((int)(body.getCentreX() + 6), body.getY(), body.getBottom());
+        }
+        else if (symbol.id == "inductor")
+        {
+            g.setColour(juce::Colour(0xffe8f1f2));
+            g.drawLine(-54.0f, 0.0f, -34.0f, 0.0f, 1.8f);
+            g.drawLine(34.0f, 0.0f, 54.0f, 0.0f, 1.8f);
+            juce::Path coils;
+            coils.startNewSubPath(-34.0f, 0.0f);
+            for (int i = 0; i < 4; ++i)
+            {
+                const auto x = -34.0f + (float)i * 17.0f;
+                coils.cubicTo(x + 4.0f, -18.0f, x + 13.0f, -18.0f, x + 17.0f, 0.0f);
+            }
+            g.strokePath(coils, juce::PathStrokeType(1.8f));
+        }
+        else if (symbol.id == "diode")
+        {
+            g.setColour(juce::Colour(0xffe8f1f2));
+            g.drawLine(-54.0f, 0.0f, -28.0f, 0.0f, 1.8f);
+            g.drawLine(28.0f, 0.0f, 54.0f, 0.0f, 1.8f);
+            juce::Path tri;
+            tri.startNewSubPath(-28.0f, -20.0f);
+            tri.lineTo(-28.0f, 20.0f);
+            tri.lineTo(18.0f, 0.0f);
+            tri.closeSubPath();
+            g.strokePath(tri, juce::PathStrokeType(1.8f));
+            g.drawLine(22.0f, -22.0f, 22.0f, 22.0f, 1.8f);
         }
         else if (symbol.id == "power_bus")
         {
