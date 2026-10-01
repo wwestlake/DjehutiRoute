@@ -1541,10 +1541,201 @@ private:
 class InstrumentPanel final : public juce::Component
 {
 public:
+    InstrumentPanel()
+    {
+        title.setText("Lab Bench", juce::dontSendNotification);
+        title.setFont(juce::Font(16.0f, juce::Font::bold));
+        title.setColour(juce::Label::textColourId, juce::Colour(0xff78dcca));
+        addAndMakeVisible(title);
+
+        psuTitle.setText("Programmable Power Supply", juce::dontSendNotification);
+        psuTitle.setFont(juce::Font(14.0f, juce::Font::bold));
+        psuTitle.setColour(juce::Label::textColourId, juce::Colour(0xffdce9ee));
+        addAndMakeVisible(psuTitle);
+
+        mode.addItem("DC", 1);
+        mode.addItem("AC", 2);
+        mode.setSelectedId(1, juce::dontSendNotification);
+        mode.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff253341));
+        mode.setColour(juce::ComboBox::textColourId, juce::Colour(0xffdce9ee));
+        addAndMakeVisible(mode);
+
+        for (auto* editor : { &positiveNet, &negativeNet, &voltage, &frequency, &currentLimit, &internalResistance })
+        {
+            styleTextEditor(*editor);
+            editor->setMultiLine(false);
+            addAndMakeVisible(*editor);
+        }
+
+        positiveNet.setText("+9V", juce::dontSendNotification);
+        negativeNet.setText("0", juce::dontSendNotification);
+        voltage.setText("9", juce::dontSendNotification);
+        frequency.setText("60", juce::dontSendNotification);
+        currentLimit.setText("100m", juce::dontSendNotification);
+        internalResistance.setText("0.2", juce::dontSendNotification);
+
+        positiveNet.setTextToShowWhenEmpty("+9V, +12V, +18V", juce::Colour(0xff71808c));
+        negativeNet.setTextToShowWhenEmpty("0", juce::Colour(0xff71808c));
+        voltage.setTextToShowWhenEmpty("9", juce::Colour(0xff71808c));
+        frequency.setTextToShowWhenEmpty("60", juce::Colour(0xff71808c));
+        currentLimit.setTextToShowWhenEmpty("100m", juce::Colour(0xff71808c));
+        internalResistance.setTextToShowWhenEmpty("0.2", juce::Colour(0xff71808c));
+
+        outputEnabled.setButtonText("Output enabled");
+        outputEnabled.setToggleState(true, juce::dontSendNotification);
+        outputEnabled.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffdce9ee));
+        addAndMakeVisible(outputEnabled);
+
+        currentLimited.setButtonText("Current limit active");
+        currentLimited.setToggleState(true, juce::dontSendNotification);
+        currentLimited.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffdce9ee));
+        addAndMakeVisible(currentLimited);
+
+        for (auto* button : { &preset9v, &preset12v, &preset18v, &presetDyingBattery })
+        {
+            button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff253341));
+            button->setColour(juce::TextButton::textColourOffId, juce::Colour(0xffdce9ee));
+            addAndMakeVisible(*button);
+        }
+        preset9v.onClick = [this] { applyPreset("9", "100m", "0.2"); };
+        preset12v.onClick = [this] { applyPreset("12", "100m", "0.15"); };
+        preset18v.onClick = [this] { applyPreset("18", "100m", "0.15"); };
+        presetDyingBattery.onClick = [this] { applyPreset("6.8", "35m", "25"); };
+
+        dmmTitle.setText("Precision Digital Multimeter", juce::dontSendNotification);
+        dmmTitle.setFont(juce::Font(14.0f, juce::Font::bold));
+        dmmTitle.setColour(juce::Label::textColourId, juce::Colour(0xffdce9ee));
+        addAndMakeVisible(dmmTitle);
+
+        for (const auto& item : { "DC Voltage", "AC Voltage", "DC Current", "AC Current", "Resistance",
+                                  "4-Wire Resistance", "Continuity", "Diode", "Capacitance", "Frequency",
+                                  "Period", "Duty Cycle", "Temperature", "AC+DC Voltage", "AC+DC Current",
+                                  "Ratio", "dB", "dBm", "Digitizer Voltage", "Digitizer Current" })
+            dmmFunction.addItem(item, dmmFunction.getNumItems() + 1);
+        dmmFunction.setSelectedId(1, juce::dontSendNotification);
+        dmmFunction.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff253341));
+        dmmFunction.setColour(juce::ComboBox::textColourId, juce::Colour(0xffdce9ee));
+        addAndMakeVisible(dmmFunction);
+
+        for (const auto& item : { "Auto", "100 mV", "1 V", "10 V", "100 V", "1000 V",
+                                  "1 uA", "100 uA", "1 mA", "10 mA", "100 mA", "1 A", "10 A",
+                                  "100 Ohm", "1 kOhm", "10 kOhm", "100 kOhm", "1 MOhm", "100 MOhm",
+                                  "1 nF", "10 nF", "100 nF", "1 uF", "100 uF", "Hz" })
+            dmmRange.addItem(item, dmmRange.getNumItems() + 1);
+        dmmRange.setSelectedId(1, juce::dontSendNotification);
+        dmmRange.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff253341));
+        dmmRange.setColour(juce::ComboBox::textColourId, juce::Colour(0xffdce9ee));
+        addAndMakeVisible(dmmRange);
+
+        for (auto* editor : { &dmmHighNet, &dmmLowNet, &dmmNplc, &dmmSampleRate })
+        {
+            styleTextEditor(*editor);
+            editor->setMultiLine(false);
+            addAndMakeVisible(*editor);
+        }
+        dmmHighNet.setText("probe", juce::dontSendNotification);
+        dmmLowNet.setText("0", juce::dontSendNotification);
+        dmmNplc.setText("10", juce::dontSendNotification);
+        dmmSampleRate.setText("1000", juce::dontSendNotification);
+
+        dmmDisplay.setText("+0.000000 V", juce::dontSendNotification);
+        dmmDisplay.setFont(juce::Font(20.0f, juce::Font::bold));
+        dmmDisplay.setJustificationType(juce::Justification::centredRight);
+        dmmDisplay.setColour(juce::Label::textColourId, juce::Colour(0xff78dcca));
+        dmmDisplay.setColour(juce::Label::backgroundColourId, juce::Colour(0xff0e141a));
+        addAndMakeVisible(dmmDisplay);
+
+        for (auto* toggle : { &dmmTrueRms, &dmmAutoRange, &dmmHold, &dmmRelative, &dmmMinMax,
+                              &dmmPeakMinMax, &dmmLowPass, &dmmLoZ, &dmmContinuityBeep })
+        {
+            toggle->setColour(juce::ToggleButton::textColourId, juce::Colour(0xffdce9ee));
+            addAndMakeVisible(*toggle);
+        }
+        dmmTrueRms.setToggleState(true, juce::dontSendNotification);
+        dmmAutoRange.setToggleState(true, juce::dontSendNotification);
+        dmmContinuityBeep.setToggleState(true, juce::dontSendNotification);
+    }
+
+    juce::String buildInstrumentJson() const
+    {
+        juce::String text;
+        text << "{\n";
+        text << "  \"schemaVersion\": 1,\n";
+        text << "  \"kind\": \"djehuti_lab_instruments\",\n";
+        text << "  \"instruments\": [\n";
+        text << "    {\n";
+        text << "      \"id\": \"PSU1\",\n";
+        text << "      \"type\": \"programmable_power_supply\",\n";
+        text << "      \"mode\": " << quote(mode.getText().toLowerCase()) << ",\n";
+        text << "      \"channels\": [\n";
+        text << "        {\n";
+        text << "          \"name\": \"CH1\",\n";
+        text << "          \"positiveNet\": " << quote(positiveNet.getText().trim()) << ",\n";
+        text << "          \"negativeNet\": " << quote(negativeNet.getText().trim()) << ",\n";
+        text << "          \"voltage\": " << quote(voltage.getText().trim() + "V") << ",\n";
+        text << "          \"frequency\": " << quote(frequency.getText().trim() + "Hz") << ",\n";
+        text << "          \"currentLimit\": " << quote(currentLimit.getText().trim() + "A") << ",\n";
+        text << "          \"currentLimitEnabled\": " << (currentLimited.getToggleState() ? "true" : "false") << ",\n";
+        text << "          \"internalResistance\": " << quote(internalResistance.getText().trim() + "ohm") << ",\n";
+        text << "          \"enabled\": " << (outputEnabled.getToggleState() ? "true" : "false") << "\n";
+        text << "        }\n";
+        text << "      ]\n";
+        text << "    },\n";
+        text << "    {\n";
+        text << "      \"id\": \"DMM1\",\n";
+        text << "      \"type\": \"precision_digital_multimeter\",\n";
+        text << "      \"function\": " << quote(dmmFunction.getText()) << ",\n";
+        text << "      \"range\": " << quote(dmmRange.getText()) << ",\n";
+        text << "      \"connections\": {\n";
+        text << "        \"high\": " << quote(dmmHighNet.getText().trim()) << ",\n";
+        text << "        \"low\": " << quote(dmmLowNet.getText().trim()) << "\n";
+        text << "      },\n";
+        text << "      \"features\": {\n";
+        text << "        \"trueRms\": " << (dmmTrueRms.getToggleState() ? "true" : "false") << ",\n";
+        text << "        \"autoRange\": " << (dmmAutoRange.getToggleState() ? "true" : "false") << ",\n";
+        text << "        \"hold\": " << (dmmHold.getToggleState() ? "true" : "false") << ",\n";
+        text << "        \"relative\": " << (dmmRelative.getToggleState() ? "true" : "false") << ",\n";
+        text << "        \"minMaxRecording\": " << (dmmMinMax.getToggleState() ? "true" : "false") << ",\n";
+        text << "        \"peakMinMax\": " << (dmmPeakMinMax.getToggleState() ? "true" : "false") << ",\n";
+        text << "        \"lowPassFilter\": " << (dmmLowPass.getToggleState() ? "true" : "false") << ",\n";
+        text << "        \"lowImpedanceMode\": " << (dmmLoZ.getToggleState() ? "true" : "false") << ",\n";
+        text << "        \"continuityBeep\": " << (dmmContinuityBeep.getToggleState() ? "true" : "false") << "\n";
+        text << "      },\n";
+        text << "      \"acquisition\": {\n";
+        text << "        \"nplc\": " << quote(dmmNplc.getText().trim()) << ",\n";
+        text << "        \"sampleRate\": " << quote(dmmSampleRate.getText().trim() + "Sa/s") << ",\n";
+        text << "        \"digitizer\": { \"enabled\": true, \"resolutionBits\": 16 },\n";
+        text << "        \"statistics\": [\"min\", \"max\", \"average\", \"peakToPeak\", \"standardDeviation\"],\n";
+        text << "        \"logging\": true,\n";
+        text << "        \"graphing\": true,\n";
+        text << "        \"displayViews\": [\"numeric\", \"trend\", \"histogram\", \"bar\", \"waveform\"]\n";
+        text << "      }\n";
+        text << "    }\n";
+        text << "  ]\n";
+        text << "}\n";
+        return text;
+    }
+
     void paint(juce::Graphics& g) override
     {
         g.fillAll(juce::Colour(0xff10161d));
         auto area = getLocalBounds().reduced(12);
+        g.setColour(juce::Colour(0xff93a7b0));
+        g.setFont(juce::Font(11.5f, juce::Font::bold));
+        g.drawText("Mode", 12, 64, 78, 16, juce::Justification::centredLeft);
+        g.drawText("+ net", 12, 104, 110, 16, juce::Justification::centredLeft);
+        g.drawText("- net", 130, 104, 110, 16, juce::Justification::centredLeft);
+        g.drawText("Volts", 12, 160, 92, 16, juce::Justification::centredLeft);
+        g.drawText("Freq", 112, 160, 92, 16, juce::Justification::centredLeft);
+        g.drawText("Limit", 212, 160, 92, 16, juce::Justification::centredLeft);
+        g.drawText("Internal R", 312, 160, 92, 16, juce::Justification::centredLeft);
+        g.drawText("Function", 12, 240, 150, 16, juce::Justification::centredLeft);
+        g.drawText("Range", 170, 240, 86, 16, juce::Justification::centredLeft);
+        g.drawText("HI", 12, 280, 110, 16, juce::Justification::centredLeft);
+        g.drawText("LO", 130, 280, 110, 16, juce::Justification::centredLeft);
+        g.drawText("NPLC", 248, 280, 70, 16, juce::Justification::centredLeft);
+        g.drawText("Sa/s", 326, 280, 90, 16, juce::Justification::centredLeft);
+        area.removeFromTop(322);
         g.setColour(juce::Colour(0xffdce9ee));
         g.setFont(juce::Font(15.0f, juce::Font::bold));
         g.drawText("Oscilloscope / Dataset Viewer", area.removeFromTop(24), juce::Justification::centredLeft);
@@ -1571,6 +1762,138 @@ public:
         g.setColour(juce::Colour(0xff78dcca));
         g.strokePath(wave, juce::PathStrokeType(2.0f));
     }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(12);
+        title.setBounds(area.removeFromTop(24));
+        area.removeFromTop(6);
+        psuTitle.setBounds(area.removeFromTop(22));
+
+        auto topRow = area.removeFromTop(28);
+        addField(topRow, mode, 78);
+        topRow.removeFromLeft(8);
+        outputEnabled.setBounds(topRow.removeFromLeft(140));
+        currentLimited.setBounds(topRow.removeFromLeft(150));
+
+        area.removeFromTop(8);
+        auto nets = area.removeFromTop(48);
+        layoutEditor(nets, "Positive net", positiveNet);
+        nets.removeFromLeft(8);
+        layoutEditor(nets, "Negative net", negativeNet);
+
+        area.removeFromTop(8);
+        auto electrical = area.removeFromTop(48);
+        layoutEditor(electrical, "Voltage", voltage);
+        electrical.removeFromLeft(8);
+        layoutEditor(electrical, "Frequency", frequency);
+        electrical.removeFromLeft(8);
+        layoutEditor(electrical, "Current limit", currentLimit);
+        electrical.removeFromLeft(8);
+        layoutEditor(electrical, "Internal R", internalResistance);
+
+        area.removeFromTop(8);
+        auto presets = area.removeFromTop(28);
+        preset9v.setBounds(presets.removeFromLeft(76));
+        presets.removeFromLeft(6);
+        preset12v.setBounds(presets.removeFromLeft(76));
+        presets.removeFromLeft(6);
+        preset18v.setBounds(presets.removeFromLeft(76));
+        presets.removeFromLeft(6);
+        presetDyingBattery.setBounds(presets.removeFromLeft(130));
+
+        area.removeFromTop(14);
+        dmmTitle.setBounds(area.removeFromTop(22));
+        auto dmmTop = area.removeFromTop(32);
+        dmmFunction.setBounds(dmmTop.removeFromLeft(150));
+        dmmTop.removeFromLeft(8);
+        dmmRange.setBounds(dmmTop.removeFromLeft(86));
+        dmmTop.removeFromLeft(8);
+        dmmDisplay.setBounds(dmmTop.removeFromLeft(190));
+
+        area.removeFromTop(8);
+        auto dmmNets = area.removeFromTop(32);
+        dmmHighNet.setBounds(dmmNets.removeFromLeft(110));
+        dmmNets.removeFromLeft(8);
+        dmmLowNet.setBounds(dmmNets.removeFromLeft(110));
+        dmmNets.removeFromLeft(8);
+        dmmNplc.setBounds(dmmNets.removeFromLeft(70));
+        dmmNets.removeFromLeft(8);
+        dmmSampleRate.setBounds(dmmNets.removeFromLeft(90));
+
+        area.removeFromTop(6);
+        auto toggles = area.removeFromTop(58);
+        dmmTrueRms.setBounds(toggles.removeFromLeft(96));
+        dmmAutoRange.setBounds(toggles.removeFromLeft(104));
+        dmmHold.setBounds(toggles.removeFromLeft(72));
+        dmmRelative.setBounds(toggles.removeFromLeft(82));
+        dmmMinMax.setBounds(toggles.removeFromLeft(88));
+        dmmPeakMinMax.setBounds(toggles.removeFromLeft(92));
+        dmmLowPass.setBounds(toggles.removeFromLeft(92));
+        dmmLoZ.setBounds(toggles.removeFromLeft(72));
+        dmmContinuityBeep.setBounds(toggles.removeFromLeft(80));
+    }
+
+private:
+    static juce::String quote(const juce::String& text)
+    {
+        return "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    static void addField(juce::Rectangle<int>& area, juce::Component& component, int width)
+    {
+        component.setBounds(area.removeFromLeft(width));
+    }
+
+    static void layoutEditor(juce::Rectangle<int>& area, const juce::String& label, juce::TextEditor& editor)
+    {
+        auto column = area.removeFromLeft(std::max(92, area.getWidth() / 4));
+        juce::ignoreUnused(label);
+        editor.setBounds(column.removeFromBottom(28));
+    }
+
+    void applyPreset(const juce::String& volts, const juce::String& amps, const juce::String& resistance)
+    {
+        mode.setSelectedId(1, juce::dontSendNotification);
+        positiveNet.setText("+" + volts + "V", juce::dontSendNotification);
+        negativeNet.setText("0", juce::dontSendNotification);
+        voltage.setText(volts, juce::dontSendNotification);
+        currentLimit.setText(amps, juce::dontSendNotification);
+        internalResistance.setText(resistance, juce::dontSendNotification);
+    }
+
+    juce::Label title;
+    juce::Label psuTitle;
+    juce::ComboBox mode;
+    juce::TextEditor positiveNet;
+    juce::TextEditor negativeNet;
+    juce::TextEditor voltage;
+    juce::TextEditor frequency;
+    juce::TextEditor currentLimit;
+    juce::TextEditor internalResistance;
+    juce::ToggleButton outputEnabled;
+    juce::ToggleButton currentLimited;
+    juce::TextButton preset9v { "9V" };
+    juce::TextButton preset12v { "12V" };
+    juce::TextButton preset18v { "18V" };
+    juce::TextButton presetDyingBattery { "Dying 9V" };
+    juce::Label dmmTitle;
+    juce::ComboBox dmmFunction;
+    juce::ComboBox dmmRange;
+    juce::Label dmmDisplay;
+    juce::TextEditor dmmHighNet;
+    juce::TextEditor dmmLowNet;
+    juce::TextEditor dmmNplc;
+    juce::TextEditor dmmSampleRate;
+    juce::ToggleButton dmmTrueRms { "True RMS" };
+    juce::ToggleButton dmmAutoRange { "Auto" };
+    juce::ToggleButton dmmHold { "Hold" };
+    juce::ToggleButton dmmRelative { "Rel" };
+    juce::ToggleButton dmmMinMax { "Min/Max" };
+    juce::ToggleButton dmmPeakMinMax { "Peak" };
+    juce::ToggleButton dmmLowPass { "LPF" };
+    juce::ToggleButton dmmLoZ { "LoZ" };
+    juce::ToggleButton dmmContinuityBeep { "Beep" };
 };
 
 class ConsolePanel final : public juce::Component
@@ -1863,11 +2186,14 @@ ElectronicsWorkbench::ElectronicsWorkbench()
     propertiesPanel->onRotate = [schematicPanel] {
         schematicPanel->rotateSelected();
     };
+    auto instruments = std::make_unique<InstrumentPanel>();
+    auto* instrumentPanel = instruments.get();
     getCircuitJson = [panel = schematic.get()] { return panel->buildCircuitJson(); };
     getXyceNetlist = [panel = schematic.get()] { return panel->buildXyceNetlist(); };
+    getLabInstrumentsJson = [instrumentPanel] { return instrumentPanel->buildInstrumentJson(); };
     dockManager->registerPanel("schematic", "Schematic", std::move(schematic), CreationDock::DockTargetZone::CenterTab);
     dockManager->registerPanel("simulation", "Simulation", std::make_unique<SimulationPanel>(), CreationDock::DockTargetZone::CenterTab);
-    dockManager->registerPanel("scope", "Instruments", std::make_unique<InstrumentPanel>(), CreationDock::DockTargetZone::Bottom);
+    dockManager->registerPanel("scope", "Lab Bench", std::move(instruments), CreationDock::DockTargetZone::Bottom);
     dockManager->registerPanel("console", "Frust Math Console", std::make_unique<ConsolePanel>(logConsole), CreationDock::DockTargetZone::Bottom);
     dockManager->registerPanel("agent", "BYOK Agent", std::make_unique<AgentPanel>(), CreationDock::DockTargetZone::Right);
     dockManager->registerPanel("properties", "Properties", std::move(properties), CreationDock::DockTargetZone::Right);
@@ -2010,7 +2336,7 @@ void ElectronicsWorkbench::resetResearchState()
 
 void ElectronicsWorkbench::exportCircuitArtifacts()
 {
-    if (getCircuitJson == nullptr || getXyceNetlist == nullptr)
+    if (getCircuitJson == nullptr || getXyceNetlist == nullptr || getLabInstrumentsJson == nullptr)
     {
         appendLog("No schematic exporter is available.");
         return;
@@ -2025,8 +2351,10 @@ void ElectronicsWorkbench::exportCircuitArtifacts()
 
     const auto circuitFile = runDir.getChildFile("circuit.json");
     const auto netlistFile = runDir.getChildFile("generated.cir");
+    const auto instrumentsFile = runDir.getChildFile("lab_instruments.json");
     const auto circuitJson = getCircuitJson();
     const auto netlist = getXyceNetlist();
+    const auto instrumentsJson = getLabInstrumentsJson();
 
     if (!circuitFile.replaceWithText(circuitJson))
     {
@@ -2038,8 +2366,13 @@ void ElectronicsWorkbench::exportCircuitArtifacts()
         appendLog("Could not write Xyce netlist: " + netlistFile.getFullPathName());
         return;
     }
+    if (!instrumentsFile.replaceWithText(instrumentsJson))
+    {
+        appendLog("Could not write lab instruments JSON: " + instrumentsFile.getFullPathName());
+        return;
+    }
 
-    appendLog("Exported circuit JSON and Xyce netlist to " + runDir.getFullPathName());
+    appendLog("Exported circuit JSON, Xyce netlist, and lab instruments to " + runDir.getFullPathName());
 }
 
 void ElectronicsWorkbench::showSpecDocument()
