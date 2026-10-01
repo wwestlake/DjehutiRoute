@@ -1203,19 +1203,40 @@ private:
         if (onStatus) onStatus("Placed " + symbol.title + " at schematic grid.");
     }
 
+    juce::String displayValueFor(const Instance& instance) const
+    {
+        if (instance.symbolId == "ground" || instance.symbolId == "ground_bus")
+            return instance.busName;
+        if (instance.symbolId == "power_bus")
+            return instance.busName;
+        if (instance.symbolId == "ac_voltage_source" || instance.symbolId == "signal_source")
+            return instance.value + " @ " + instance.frequency;
+        return instance.value;
+    }
+
     void drawSymbolBody(juce::Graphics& g, const Instance& instance, const SymbolDef& symbol)
     {
-        const auto body = orientedBounds(instance, symbol);
-        g.setColour(juce::Colour(0xff17212b));
-        g.fillRoundedRectangle(body, 4.0f);
-        g.setColour(juce::Colour(0xff78dcca));
-        g.drawRoundedRectangle(body, 4.0f, 1.6f);
+        const auto selectionBounds = orientedBounds(instance, symbol).expanded(8.0f);
         if (selectedInstance >= 0 && selectedInstance < (int)instances.size()
             && &instance == &instances[(size_t)selectedInstance])
         {
             g.setColour(juce::Colour(0xffffc857));
-            g.drawRoundedRectangle(body.expanded(4.0f), 6.0f, 2.0f);
+            const auto r = selectionBounds;
+            const auto s = 8.0f;
+            g.drawLine(r.getX(), r.getY(), r.getX() + s, r.getY(), 1.5f);
+            g.drawLine(r.getX(), r.getY(), r.getX(), r.getY() + s, 1.5f);
+            g.drawLine(r.getRight(), r.getY(), r.getRight() - s, r.getY(), 1.5f);
+            g.drawLine(r.getRight(), r.getY(), r.getRight(), r.getY() + s, 1.5f);
+            g.drawLine(r.getX(), r.getBottom(), r.getX() + s, r.getBottom(), 1.5f);
+            g.drawLine(r.getX(), r.getBottom(), r.getX(), r.getBottom() - s, 1.5f);
+            g.drawLine(r.getRight(), r.getBottom(), r.getRight() - s, r.getBottom(), 1.5f);
+            g.drawLine(r.getRight(), r.getBottom(), r.getRight(), r.getBottom() - s, 1.5f);
         }
+
+        const auto body = symbol.bounds;
+        g.saveState();
+        g.addTransform(juce::AffineTransform::rotation(juce::degreesToRadians((float)instance.rotation))
+                           .translated(instance.position.x, instance.position.y));
 
         if (symbol.id == "opamp_741")
         {
@@ -1224,16 +1245,27 @@ private:
             tri.lineTo(body.getX(), body.getBottom());
             tri.lineTo(body.getRight(), body.getCentreY());
             tri.closeSubPath();
-            g.setColour(juce::Colour(0xff17212b));
-            g.fillPath(tri);
             g.setColour(juce::Colour(0xff78dcca));
             g.strokePath(tri, juce::PathStrokeType(1.8f));
+            g.setColour(juce::Colour(0xffe8f1f2));
+            g.drawLine(-72.0f, -20.0f, body.getX(), -20.0f, 1.8f);
+            g.drawLine(-72.0f, 20.0f, body.getX(), 20.0f, 1.8f);
+            g.drawLine(body.getRight(), 0.0f, 72.0f, 0.0f, 1.8f);
+            g.drawLine(0.0f, -62.0f, 0.0f, body.getY(), 1.8f);
+            g.drawLine(0.0f, body.getBottom(), 0.0f, 62.0f, 1.8f);
+            g.setFont(juce::Font(14.0f, juce::Font::bold));
+            g.drawText("+", -48, -30, 18, 18, juce::Justification::centred);
+            g.drawText("-", -48, 12, 18, 18, juce::Justification::centred);
+            g.setColour(juce::Colour(0xffdce9ee));
+            g.setFont(juce::Font(13.0f, juce::Font::bold));
+            g.drawText("uA741", body.toNearestInt(), juce::Justification::centred);
         }
         else if (symbol.id == "resistor")
         {
             g.setColour(juce::Colour(0xffe8f1f2));
             juce::Path z;
             const auto cy = body.getCentreY();
+            g.drawLine(-54.0f, 0.0f, body.getX(), 0.0f, 1.8f);
             z.startNewSubPath(body.getX(), cy);
             for (int i = 0; i < 6; ++i)
             {
@@ -1242,24 +1274,30 @@ private:
             }
             z.lineTo(body.getRight(), cy);
             g.strokePath(z, juce::PathStrokeType(1.8f));
+            g.drawLine(body.getRight(), 0.0f, 54.0f, 0.0f, 1.8f);
         }
         else if (symbol.id == "capacitor")
         {
             g.setColour(juce::Colour(0xffe8f1f2));
+            g.drawLine(-42.0f, 0.0f, -8.0f, 0.0f, 1.8f);
+            g.drawLine(8.0f, 0.0f, 42.0f, 0.0f, 1.8f);
             g.drawVerticalLine((int)(body.getCentreX() - 6), body.getY(), body.getBottom());
             g.drawVerticalLine((int)(body.getCentreX() + 6), body.getY(), body.getBottom());
         }
         else if (symbol.id == "power_bus")
         {
             g.setColour(juce::Colour(0xffffc857));
-            g.drawLine(body.getX() + 8.0f, body.getCentreY(), body.getRight() - 8.0f, body.getCentreY(), 3.0f);
-            g.drawLine(body.getCentreX(), body.getCentreY(), body.getCentreX(), body.getBottom() + 14.0f, 2.0f);
+            g.drawLine(body.getX(), body.getCentreY(), body.getRight(), body.getCentreY(), 3.0f);
+            g.drawLine(0.0f, body.getCentreY(), 0.0f, 28.0f, 2.0f);
+            g.setFont(juce::Font(12.0f, juce::Font::bold));
+            g.drawText(instance.busName.isNotEmpty() ? instance.busName : "PWR", body.toNearestInt(), juce::Justification::centred);
         }
         else if (symbol.id == "ground" || symbol.id == "ground_bus")
         {
             g.setColour(juce::Colour(0xffe8f1f2));
             const auto cx = body.getCentreX();
-            g.drawLine(cx, body.getY(), cx, body.getY() + 10, 2.0f);
+            const auto leadTop = symbol.id == "ground_bus" ? -28.0f : -24.0f;
+            g.drawLine(cx, leadTop, cx, body.getY() + 10, 2.0f);
             g.drawLine(cx - 22, body.getY() + 10, cx + 22, body.getY() + 10, 2.0f);
             g.drawLine(cx - 14, body.getY() + 19, cx + 14, body.getY() + 19, 2.0f);
             g.drawLine(cx - 6, body.getY() + 28, cx + 6, body.getY() + 28, 2.0f);
@@ -1267,9 +1305,28 @@ private:
         else if (symbol.id == "voltage_source" || symbol.id == "battery" || symbol.id == "ac_voltage_source" || symbol.id == "signal_source")
         {
             g.setColour(juce::Colour(0xffe8f1f2));
-            g.drawEllipse(body, 2.0f);
-            if (symbol.id == "ac_voltage_source" || symbol.id == "signal_source")
+            if (symbol.id == "signal_source")
             {
+                g.drawLine(-58.0f, 0.0f, body.getX(), 0.0f, 1.8f);
+                g.drawLine(body.getRight(), 0.0f, 58.0f, 0.0f, 1.8f);
+            }
+            else
+            {
+                const auto topPin = symbol.id == "battery" ? -52.0f : symbol.id == "ac_voltage_source" ? -46.0f : -42.0f;
+                const auto bottomPin = -topPin;
+                g.drawLine(0.0f, topPin, 0.0f, body.getY(), 1.8f);
+                g.drawLine(0.0f, body.getBottom(), 0.0f, bottomPin, 1.8f);
+            }
+            if (symbol.id == "battery")
+            {
+                g.drawLine(-14.0f, -10.0f, 14.0f, -10.0f, 2.0f);
+                g.drawLine(-8.0f, 10.0f, 8.0f, 10.0f, 2.0f);
+                g.setFont(juce::Font(12.0f, juce::Font::bold));
+                g.drawText("+", 10, -30, 18, 18, juce::Justification::centred);
+            }
+            else if (symbol.id == "ac_voltage_source" || symbol.id == "signal_source")
+            {
+                g.drawEllipse(body, 2.0f);
                 juce::Path wave;
                 const auto cy = body.getCentreY();
                 for (int i = 0; i <= 24; ++i)
@@ -1283,16 +1340,59 @@ private:
             }
             else
             {
+                g.drawEllipse(body, 2.0f);
                 g.drawText("+", body.withHeight(22.0f).toNearestInt(), juce::Justification::centred);
             }
+            g.setFont(juce::Font(12.0f, juce::Font::bold));
+        }
+        else if (symbol.id == "npn")
+        {
+            g.setColour(juce::Colour(0xffe8f1f2));
+            g.drawLine(-54.0f, 0.0f, -10.0f, 0.0f, 1.8f);
+            g.drawLine(-10.0f, -24.0f, -10.0f, 24.0f, 1.8f);
+            g.drawLine(-10.0f, -12.0f, 28.0f, -48.0f, 1.8f);
+            g.drawLine(-10.0f, 12.0f, 28.0f, 48.0f, 1.8f);
+            juce::Path arrow;
+            arrow.startNewSubPath(20.0f, 38.0f);
+            arrow.lineTo(28.0f, 48.0f);
+            arrow.lineTo(15.0f, 46.0f);
+            g.strokePath(arrow, juce::PathStrokeType(1.8f));
+        }
+        else if (symbol.id == "logic_not")
+        {
+            g.setColour(juce::Colour(0xffe8f1f2));
+            g.drawLine(-66.0f, 0.0f, body.getX(), 0.0f, 1.8f);
+            juce::Path tri;
+            tri.startNewSubPath(body.getX(), body.getY());
+            tri.lineTo(body.getX(), body.getBottom());
+            tri.lineTo(body.getRight() - 12.0f, 0.0f);
+            tri.closeSubPath();
+            g.strokePath(tri, juce::PathStrokeType(1.8f));
+            g.drawEllipse(body.getRight() - 12.0f, -6.0f, 12.0f, 12.0f, 1.8f);
+            g.drawLine(body.getRight(), 0.0f, 66.0f, 0.0f, 1.8f);
         }
 
-        g.setColour(juce::Colour(0xffdce9ee));
-        g.setFont(juce::Font(13.0f, juce::Font::bold));
-        g.drawText(symbol.title, body.toNearestInt(), juce::Justification::centred);
+        g.restoreState();
+
         g.setColour(juce::Colour(0xff93a7b0));
         g.setFont(juce::Font(12.0f));
-        g.drawText(instance.refdes, (int)body.getX(), (int)body.getY() - 18, (int)body.getWidth(), 16, juce::Justification::centred);
+        g.drawText(instance.refdes,
+                   (int)selectionBounds.getX(),
+                   (int)selectionBounds.getY() - 18,
+                   (int)selectionBounds.getWidth(),
+                   16,
+                   juce::Justification::centred);
+        const auto valueText = displayValueFor(instance);
+        if (valueText.isNotEmpty())
+        {
+            g.setColour(juce::Colour(0xffdce9ee));
+            g.drawText(valueText,
+                       (int)selectionBounds.getX(),
+                       (int)selectionBounds.getBottom() + 2,
+                       (int)selectionBounds.getWidth(),
+                       16,
+                       juce::Justification::centred);
+        }
     }
 
     void drawInstances(juce::Graphics& g)
