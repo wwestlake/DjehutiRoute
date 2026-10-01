@@ -73,11 +73,6 @@ public:
             addFallbackLibrary();
         refreshFilter();
 
-        addAndMakeVisible(components);
-        components.setColour(juce::ListBox::backgroundColourId, juce::Colour(0xff10161d));
-        components.setModel(&listModel);
-        components.setRowHeight(42);
-        components.selectRow(0);
         if (onSymbolSelected != nullptr)
             onSymbolSelected("resistor");
     }
@@ -88,6 +83,23 @@ public:
         g.setColour(juce::Colour(0xffdce9ee));
         g.setFont(juce::Font(14.0f, juce::Font::bold));
         g.drawText("Component Library", getLocalBounds().removeFromTop(24).reduced(8, 0), juce::Justification::centredLeft);
+
+        rowBounds.clear();
+        auto listArea = getLocalBounds().reduced(8);
+        listArea.removeFromTop(24);
+        listArea.removeFromTop(28);
+        listArea.removeFromTop(8);
+        g.setColour(juce::Colour(0xff10161d));
+        g.fillRect(listArea);
+
+        int y = listArea.getY() + 4;
+        for (int row = 0; row < (int)listModel.items.size(); ++row)
+        {
+            auto rowArea = juce::Rectangle<int>(listArea.getX() + 4, y, listArea.getWidth() - 8, 42);
+            rowBounds.push_back(rowArea);
+            paintSymbolRow(g, row, rowArea);
+            y += 44;
+        }
     }
 
     void resized() override
@@ -95,8 +107,51 @@ public:
         auto area = getLocalBounds().reduced(8);
         area.removeFromTop(24);
         filter.setBounds(area.removeFromTop(28));
-        area.removeFromTop(8);
-        components.setBounds(area);
+    }
+
+    void mouseMove(const juce::MouseEvent& event) override
+    {
+        const auto row = rowAt(event.getPosition());
+        if (row != hoverRow)
+        {
+            hoverRow = row;
+            repaint();
+        }
+    }
+
+    void mouseExit(const juce::MouseEvent&) override
+    {
+        hoverRow = -1;
+        repaint();
+    }
+
+    void mouseDown(const juce::MouseEvent& event) override
+    {
+        const auto row = rowAt(event.getPosition());
+        if (row < 0 || row >= (int)listModel.items.size())
+            return;
+
+        selectedRow = row;
+        const auto& symbol = listModel.items[(size_t)row];
+        if (onSymbolSelected != nullptr)
+            onSymbolSelected(symbol.id);
+
+        repaint();
+        if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this))
+            container->startDragging("symbol:" + symbol.id, this);
+    }
+
+    void mouseDoubleClick(const juce::MouseEvent& event) override
+    {
+        const auto row = rowAt(event.getPosition());
+        if (row < 0 || row >= (int)listModel.items.size())
+            return;
+
+        selectedRow = row;
+        const auto& symbol = listModel.items[(size_t)row];
+        if (onSymbolSelected != nullptr)
+            onSymbolSelected(symbol.id);
+        repaint();
     }
 
 private:
@@ -142,28 +197,20 @@ private:
         {
             juce::ListBox::mouseDown(event);
             dragStartRow = getRowContainingPosition(event.x, event.y);
+            if (dragStartRow < 0 || dragStartRow >= (int)listModel.items.size())
+                return;
+
+            selectRow(dragStartRow);
+            if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this))
+            {
+                const auto& symbol = listModel.items[(size_t)dragStartRow];
+                container->startDragging("symbol:" + symbol.id, this);
+            }
         }
 
         void mouseDrag(const juce::MouseEvent& event) override
         {
             juce::ListBox::mouseDrag(event);
-            if (dragStarted || dragStartRow < 0 || dragStartRow >= (int)listModel.items.size())
-                return;
-            if (event.getDistanceFromDragStart() < 6)
-                return;
-
-            if (auto* container = findParentComponentOfClass<juce::DragAndDropContainer>())
-            {
-                dragStarted = true;
-                const auto& symbol = listModel.items[(size_t)dragStartRow];
-                juce::Image image(juce::Image::ARGB, 150, 38, true);
-                juce::Graphics g(image);
-                g.fillAll(juce::Colour(0xdd23394a));
-                g.setColour(juce::Colour(0xffdce9ee));
-                g.setFont(juce::Font(14.0f, juce::Font::bold));
-                g.drawText(symbol.name, image.getBounds().reduced(8), juce::Justification::centredLeft);
-                container->startDragging("symbol:" + symbol.id, this, image, true);
-            }
         }
 
         void mouseUp(const juce::MouseEvent& event) override
@@ -183,7 +230,10 @@ private:
     ComponentList listModel;
     SymbolListBox components { listModel };
     std::vector<SymbolInfo> allSymbols;
+    std::vector<juce::Rectangle<int>> rowBounds;
     std::function<void(juce::String)> onSymbolSelected;
+    int hoverRow = -1;
+    int selectedRow = 0;
 
     void add(SymbolInfo item) { allSymbols.push_back(std::move(item)); }
 
@@ -247,9 +297,48 @@ private:
                 listModel.items.push_back(symbol);
         }
         listModel.onSelected = onSymbolSelected;
-        components.updateContent();
-        if (!listModel.items.empty() && components.getSelectedRow() < 0)
-            components.selectRow(0);
+        selectedRow = listModel.items.empty() ? -1 : std::clamp(selectedRow, 0, (int)listModel.items.size() - 1);
+        repaint();
+    }
+
+    int rowAt(juce::Point<int> position) const
+    {
+        for (int i = 0; i < (int)rowBounds.size(); ++i)
+            if (rowBounds[(size_t)i].contains(position))
+                return i;
+        return -1;
+    }
+
+    void paintSymbolRow(juce::Graphics& g, int row, juce::Rectangle<int> area)
+    {
+        if (row < 0 || row >= (int)listModel.items.size())
+            return;
+
+        const auto& item = listModel.items[(size_t)row];
+        if (row == selectedRow)
+        {
+            g.setColour(juce::Colour(0xff23394a));
+            g.fillRoundedRectangle(area.toFloat(), 4.0f);
+        }
+        else if (row == hoverRow)
+        {
+            g.setColour(juce::Colour(0xff202b35));
+            g.fillRoundedRectangle(area.toFloat(), 4.0f);
+        }
+
+        const auto swatch = area.withWidth(10).withHeight(10).withCentre({ area.getX() + 13, area.getCentreY() });
+        g.setColour(item.category == "Source" ? juce::Colour(0xfff4d35e)
+                    : item.category == "Bus" ? juce::Colour(0xff78dcca)
+                    : item.category == "Analog IC" ? juce::Colour(0xffffc857)
+                    : juce::Colour(0xff5aa7c8));
+        g.fillRoundedRectangle(swatch.toFloat(), 3.0f);
+
+        g.setColour(juce::Colour(0xffdce9ee));
+        g.setFont(juce::Font(14.0f, juce::Font::bold));
+        g.drawText(item.name, area.withTrimmedLeft(26).withTrimmedBottom(18), juce::Justification::centredLeft, true);
+        g.setColour(juce::Colour(0xff93a7b0));
+        g.setFont(juce::Font(12.0f));
+        g.drawText(item.category + "  " + item.id, area.withTrimmedLeft(26).withTrimmedTop(20), juce::Justification::centredLeft, true);
     }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ComponentLibraryPanel)
@@ -295,6 +384,18 @@ public:
         repaint();
     }
 
+    void rotateSelected()
+    {
+        if (selectedInstance < 0 || selectedInstance >= (int)instances.size())
+            return;
+
+        auto& instance = instances[(size_t)selectedInstance];
+        instance.rotation = (instance.rotation + 90) % 360;
+        if (onStatus) onStatus("Rotated " + instance.refdes + " to " + juce::String(instance.rotation) + " degrees.");
+        notifySelection();
+        repaint();
+    }
+
     juce::String buildCircuitJson() const
     {
         const auto netNames = computeNetNames();
@@ -319,6 +420,7 @@ public:
             text << "      },\n";
             text << "      \"x\": " << instance.position.x << ",\n";
             text << "      \"y\": " << instance.position.y << ",\n";
+            text << "      \"rotation\": " << instance.rotation << ",\n";
             text << "      \"value\": " << quote(instance.value) << ",\n";
             text << "      \"parameters\": " << parametersJsonFor(instance) << ",\n";
             text << "      \"pins\": {\n";
@@ -337,8 +439,8 @@ public:
         {
             const auto& wire = wires[i];
             if (i != 0) text << ",\n";
-            text << "    { \"a\": " << quote(pinLabel(wire.a))
-                 << ", \"b\": " << quote(pinLabel(wire.b)) << " }";
+            text << "    { \"a\": " << quote(nodeLabel(wire.a))
+                 << ", \"b\": " << quote(nodeLabel(wire.b)) << " }";
         }
         text << "\n  ]\n";
         text << "}\n";
@@ -446,8 +548,8 @@ public:
         g.setColour(juce::Colour(0xff93a7b0));
         g.setFont(juce::Font(13.0f));
         const auto stampOn = getStampPlacementEnabled != nullptr && getStampPlacementEnabled();
-        g.drawText(stampOn ? "Stamp mode: click empty canvas to place selected symbols. Click pins to wire."
-                           : "Drag components from the library. Click pins to start/end right-angle wires.",
+        g.drawText(stampOn ? "Stamp mode: click empty canvas to place selected symbols, drag selected parts to move, R rotates."
+                           : "Drag components from the library. Drag selected parts to move. Use Rotate in Properties to turn parts.",
                    getLocalBounds().reduced(12).removeFromBottom(24),
                    juce::Justification::centredLeft);
 
@@ -464,20 +566,25 @@ public:
 
     void mouseDown(const juce::MouseEvent& event) override
     {
+        grabKeyboardFocus();
         const auto p = snap(event.position);
         if (auto pin = hitTestPin(event.position); pin.instanceIndex >= 0)
         {
-            if (pendingPin.instanceIndex < 0)
-            {
-                pendingPin = pin;
-                if (onStatus) onStatus("Wire start: " + pinLabel(pin) + ". Click another pin to connect.");
-            }
-            else if (!(pendingPin.instanceIndex == pin.instanceIndex && pendingPin.pinIndex == pin.pinIndex))
-            {
-                wires.push_back({ pendingPin, pin });
-                if (onStatus) onStatus("Connected " + pinLabel(pendingPin) + " to " + pinLabel(pin) + ".");
-                pendingPin = {};
-            }
+            handleWireNodeClick(WireNode::forPin(pin));
+            repaint();
+            return;
+        }
+
+        if (auto junction = hitTestJunction(event.position); junction >= 0)
+        {
+            handleWireNodeClick(WireNode::forJunction(junction));
+            repaint();
+            return;
+        }
+
+        if (auto wireIndex = hitTestWire(event.position); wireIndex >= 0)
+        {
+            handleWireNodeClick(createJunctionOnWire(wireIndex, p));
             repaint();
             return;
         }
@@ -485,6 +592,9 @@ public:
         if (const auto instanceIndex = hitTestInstance(event.position); instanceIndex >= 0)
         {
             selectedInstance = instanceIndex;
+            draggingInstance = true;
+            dragStartMouse = event.position;
+            dragStartPosition = instances[(size_t)selectedInstance].position;
             notifySelection();
             repaint();
             return;
@@ -498,12 +608,33 @@ public:
         }
     }
 
+    void mouseDrag(const juce::MouseEvent& event) override
+    {
+        if (!draggingInstance || selectedInstance < 0 || selectedInstance >= (int)instances.size())
+            return;
+
+        auto& instance = instances[(size_t)selectedInstance];
+        instance.position = snap(dragStartPosition + (event.position - dragStartMouse));
+        notifySelection();
+        repaint();
+    }
+
+    void mouseUp(const juce::MouseEvent&) override
+    {
+        draggingInstance = false;
+    }
+
     bool keyPressed(const juce::KeyPress& key) override
     {
         if (key == juce::KeyPress::escapeKey)
         {
-            pendingPin = {};
+            pendingNode = {};
             repaint();
+            return true;
+        }
+        if (key.getTextCharacter() == 'r' || key.getTextCharacter() == 'R')
+        {
+            rotateSelected();
             return true;
         }
         return false;
@@ -563,6 +694,7 @@ private:
         juce::String family;
         juce::String manufacturerPart;
         juce::Point<float> position;
+        int rotation = 0;
     };
 
     struct PinRef
@@ -571,10 +703,34 @@ private:
         int pinIndex = -1;
     };
 
+    struct WireNode
+    {
+        PinRef pin;
+        int junctionIndex = -1;
+
+        static WireNode forPin(PinRef pinRef)
+        {
+            WireNode node;
+            node.pin = pinRef;
+            return node;
+        }
+
+        static WireNode forJunction(int index)
+        {
+            WireNode node;
+            node.junctionIndex = index;
+            return node;
+        }
+
+        bool isPin() const { return pin.instanceIndex >= 0 && pin.pinIndex >= 0; }
+        bool isJunction() const { return junctionIndex >= 0; }
+        bool isValid() const { return isPin() || isJunction(); }
+    };
+
     struct Wire
     {
-        PinRef a;
-        PinRef b;
+        WireNode a;
+        WireNode b;
     };
 
     struct DisjointSet
@@ -605,10 +761,14 @@ private:
 
     std::vector<Instance> instances;
     std::vector<Wire> wires;
-    PinRef pendingPin;
+    std::vector<juce::Point<float>> junctions;
+    WireNode pendingNode;
     int selectedInstance = -1;
     int nextRef = 1;
     bool dragHover = false;
+    bool draggingInstance = false;
+    juce::Point<float> dragStartMouse;
+    juce::Point<float> dragStartPosition;
     std::function<juce::String()> getSelectedSymbolId;
     std::function<bool()> getStampPlacementEnabled;
     std::function<void(juce::String)> onStatus;
@@ -748,28 +908,46 @@ private:
         return ordinal + pin.pinIndex;
     }
 
+    int pinCount() const
+    {
+        int count = 0;
+        for (const auto& instance : instances)
+            count += (int)symbolFor(instance.symbolId).pins.size();
+        return count;
+    }
+
+    int nodeOrdinal(const WireNode& node) const
+    {
+        if (node.isPin())
+            return pinOrdinal(node.pin);
+        if (node.isJunction())
+            return pinCount() + node.junctionIndex;
+        return -1;
+    }
+
     std::map<int, juce::String> computeNetNames() const
     {
-        int pinCount = 0;
-        for (const auto& instance : instances)
-            pinCount += (int)symbolFor(instance.symbolId).pins.size();
+        const auto totalPins = pinCount();
+        const auto totalNodes = totalPins + (int)junctions.size();
 
         std::map<int, juce::String> result;
-        if (pinCount <= 0)
+        if (totalNodes <= 0)
             return result;
 
-        DisjointSet sets(pinCount);
+        DisjointSet sets(totalNodes);
         for (const auto& wire : wires)
         {
-            if (wire.a.instanceIndex < 0 || wire.b.instanceIndex < 0)
+            const auto a = nodeOrdinal(wire.a);
+            const auto b = nodeOrdinal(wire.b);
+            if (a < 0 || b < 0)
                 continue;
-            sets.unite(pinOrdinal(wire.a), pinOrdinal(wire.b));
+            sets.unite(a, b);
         }
 
         std::set<int> groundRoots;
         for (size_t i = 0; i < instances.size(); ++i)
         {
-            if (instances[i].symbolId != "ground")
+            if (instances[i].symbolId != "ground" && instances[i].symbolId != "ground_bus")
                 continue;
             const auto symbol = symbolFor(instances[i].symbolId);
             for (size_t p = 0; p < symbol.pins.size(); ++p)
@@ -778,7 +956,7 @@ private:
 
         std::map<int, int> assigned;
         int nextNet = 1;
-        for (int pin = 0; pin < pinCount; ++pin)
+        for (int pin = 0; pin < totalPins; ++pin)
         {
             const auto root = sets.find(pin);
             if (groundRoots.count(root) != 0)
@@ -822,7 +1000,7 @@ private:
         const auto& instance = instances[(size_t)pin.instanceIndex];
         const auto symbol = symbolFor(instance.symbolId);
         if (pin.pinIndex < 0 || pin.pinIndex >= (int)symbol.pins.size()) return instance.position;
-        return instance.position + symbol.pins[(size_t)pin.pinIndex].offset;
+        return instance.position + rotateOffset(symbol.pins[(size_t)pin.pinIndex].offset, instance.rotation);
     }
 
     juce::String pinLabel(const PinRef& pin) const
@@ -834,6 +1012,24 @@ private:
         return instance.refdes + "." + symbol.pins[(size_t)pin.pinIndex].name;
     }
 
+    juce::Point<float> nodePosition(const WireNode& node) const
+    {
+        if (node.isPin())
+            return pinPosition(node.pin);
+        if (node.isJunction() && node.junctionIndex < (int)junctions.size())
+            return junctions[(size_t)node.junctionIndex];
+        return {};
+    }
+
+    juce::String nodeLabel(const WireNode& node) const
+    {
+        if (node.isPin())
+            return pinLabel(node.pin);
+        if (node.isJunction())
+            return "J" + juce::String(node.junctionIndex + 1);
+        return {};
+    }
+
     PinRef hitTestPin(juce::Point<float> p) const
     {
         for (int i = (int)instances.size() - 1; i >= 0; --i)
@@ -841,12 +1037,52 @@ private:
             const auto symbol = symbolFor(instances[(size_t)i].symbolId);
             for (int j = 0; j < (int)symbol.pins.size(); ++j)
             {
-                const auto pin = instances[(size_t)i].position + symbol.pins[(size_t)j].offset;
-                if (pin.getDistanceFrom(p) <= 9.0f)
+                const auto pin = pinPosition({ i, j });
+                if (pin.getDistanceFrom(p) <= 14.0f)
                     return { i, j };
             }
         }
         return {};
+    }
+
+    int hitTestJunction(juce::Point<float> p) const
+    {
+        for (int i = (int)junctions.size() - 1; i >= 0; --i)
+            if (junctions[(size_t)i].getDistanceFrom(p) <= 12.0f)
+                return i;
+        return -1;
+    }
+
+    static float distanceToSegment(juce::Point<float> p, juce::Point<float> a, juce::Point<float> b)
+    {
+        const auto ab = b - a;
+        const auto ap = p - a;
+        const auto lengthSquared = ab.x * ab.x + ab.y * ab.y;
+        if (lengthSquared <= 0.001f)
+            return p.getDistanceFrom(a);
+
+        const auto t = std::clamp((ap.x * ab.x + ap.y * ab.y) / lengthSquared, 0.0f, 1.0f);
+        return p.getDistanceFrom({ a.x + ab.x * t, a.y + ab.y * t });
+    }
+
+    float distanceToWire(juce::Point<float> p, const Wire& wire) const
+    {
+        const auto a = nodePosition(wire.a);
+        const auto b = nodePosition(wire.b);
+        const auto midX = std::round((a.x + b.x) * 0.5f / 24.0f) * 24.0f;
+        const juce::Point<float> c { midX, a.y };
+        const juce::Point<float> d { midX, b.y };
+        return std::min({ distanceToSegment(p, a, c),
+                          distanceToSegment(p, c, d),
+                          distanceToSegment(p, d, b) });
+    }
+
+    int hitTestWire(juce::Point<float> p) const
+    {
+        for (int i = (int)wires.size() - 1; i >= 0; --i)
+            if (distanceToWire(p, wires[(size_t)i]) <= 8.0f)
+                return i;
+        return -1;
     }
 
     int hitTestInstance(juce::Point<float> p) const
@@ -855,10 +1091,71 @@ private:
         {
             const auto& instance = instances[(size_t)i];
             const auto symbol = symbolFor(instance.symbolId);
-            if (symbol.bounds.translated(instance.position.x, instance.position.y).expanded(4.0f).contains(p))
+            if (orientedBounds(instance, symbol).expanded(4.0f).contains(p))
                 return i;
         }
         return -1;
+    }
+
+    static juce::Point<float> rotateOffset(juce::Point<float> offset, int rotation)
+    {
+        switch (((rotation % 360) + 360) % 360)
+        {
+            case 90: return { -offset.y, offset.x };
+            case 180: return { -offset.x, -offset.y };
+            case 270: return { offset.y, -offset.x };
+            default: return offset;
+        }
+    }
+
+    juce::Rectangle<float> orientedBounds(const Instance& instance, const SymbolDef& symbol) const
+    {
+        const auto r = symbol.bounds;
+        const auto rotation = ((instance.rotation % 360) + 360) % 360;
+        if (rotation == 90 || rotation == 270)
+            return { instance.position.x - r.getHeight() * 0.5f,
+                     instance.position.y - r.getWidth() * 0.5f,
+                     r.getHeight(),
+                     r.getWidth() };
+        return r.translated(instance.position.x, instance.position.y);
+    }
+
+    void handleWireNodeClick(WireNode node)
+    {
+        if (!node.isValid())
+            return;
+
+        if (!pendingNode.isValid())
+        {
+            pendingNode = node;
+            if (onStatus) onStatus("Wire start: " + nodeLabel(node) + ". Click another pin or wire to connect.");
+            return;
+        }
+
+        if (nodeLabel(pendingNode) == nodeLabel(node))
+            return;
+
+        wires.push_back({ pendingNode, node });
+        if (onStatus) onStatus("Connected " + nodeLabel(pendingNode) + " to " + nodeLabel(node) + ".");
+        pendingNode = {};
+    }
+
+    WireNode createJunctionOnWire(int wireIndex, juce::Point<float> position)
+    {
+        const auto junctionIndex = (int)junctions.size();
+        junctions.push_back(position);
+        const auto junction = WireNode::forJunction(junctionIndex);
+
+        if (wireIndex >= 0 && wireIndex < (int)wires.size())
+        {
+            const auto existing = wires[(size_t)wireIndex];
+            wires.erase(wires.begin() + wireIndex);
+            wires.push_back({ existing.a, junction });
+            wires.push_back({ junction, existing.b });
+        }
+
+        if (onStatus) onStatus("Added junction " + nodeLabel(junction) + ".");
+        return junction;
     }
 
     void notifySelection()
@@ -899,7 +1196,8 @@ private:
                               defaultBusNameFor(symbol.id),
                               familyFor(symbol.id),
                               {},
-                              p });
+                              p,
+                              0 });
         selectedInstance = (int)instances.size() - 1;
         notifySelection();
         if (onStatus) onStatus("Placed " + symbol.title + " at schematic grid.");
@@ -907,7 +1205,7 @@ private:
 
     void drawSymbolBody(juce::Graphics& g, const Instance& instance, const SymbolDef& symbol)
     {
-        const auto body = symbol.bounds.translated(instance.position.x, instance.position.y);
+        const auto body = orientedBounds(instance, symbol);
         g.setColour(juce::Colour(0xff17212b));
         g.fillRoundedRectangle(body, 4.0f);
         g.setColour(juce::Colour(0xff78dcca));
@@ -999,14 +1297,15 @@ private:
 
     void drawInstances(juce::Graphics& g)
     {
-        for (const auto& instance : instances)
+        for (int instanceIndex = 0; instanceIndex < (int)instances.size(); ++instanceIndex)
         {
+            const auto& instance = instances[(size_t)instanceIndex];
             const auto symbol = symbolFor(instance.symbolId);
             drawSymbolBody(g, instance, symbol);
 
             for (size_t i = 0; i < symbol.pins.size(); ++i)
             {
-                const auto pin = instance.position + symbol.pins[i].offset;
+                const auto pin = pinPosition({ instanceIndex, (int)i });
                 g.setColour(juce::Colour(0xffe8f1f2));
                 g.fillEllipse(pin.x - 4, pin.y - 4, 8, 8);
                 g.setColour(juce::Colour(0xff93a7b0));
@@ -1031,13 +1330,17 @@ private:
     void drawWires(juce::Graphics& g)
     {
         for (const auto& wire : wires)
-            drawRightAngleWire(g, pinPosition(wire.a), pinPosition(wire.b), juce::Colour(0xfff4d35e), 2.0f);
+            drawRightAngleWire(g, nodePosition(wire.a), nodePosition(wire.b), juce::Colour(0xfff4d35e), 2.0f);
+
+        g.setColour(juce::Colour(0xffffc857));
+        for (const auto& junction : junctions)
+            g.fillEllipse(junction.x - 4.0f, junction.y - 4.0f, 8.0f, 8.0f);
     }
 
     void drawPendingWire(juce::Graphics& g)
     {
-        if (pendingPin.instanceIndex < 0) return;
-        const auto start = pinPosition(pendingPin);
+        if (!pendingNode.isValid()) return;
+        const auto start = nodePosition(pendingNode);
         const auto end = getMouseXYRelative().toFloat();
         drawRightAngleWire(g, start, end, juce::Colour(0x99f4d35e), 1.5f);
     }
@@ -1183,6 +1486,15 @@ public:
         };
         addAndMakeVisible(apply);
 
+        rotate.setButtonText("Rotate 90");
+        rotate.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff253341));
+        rotate.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffdce9ee));
+        rotate.onClick = [this] {
+            if (onRotate != nullptr && selectedIndex >= 0)
+                onRotate();
+        };
+        addAndMakeVisible(rotate);
+
         setSelection(-1, {}, {}, {}, {}, {}, {}, {});
     }
 
@@ -1207,9 +1519,11 @@ public:
         for (auto* editor : { &value, &frequency, &busName, &family, &manufacturerPart })
             editor->setEnabled(hasSelection);
         apply.setEnabled(hasSelection);
+        rotate.setEnabled(hasSelection);
     }
 
     std::function<void(juce::String, juce::String, juce::String, juce::String, juce::String)> onApply;
+    std::function<void()> onRotate;
 
     void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xff151a20)); }
 
@@ -1225,7 +1539,10 @@ public:
         layoutRow(area, familyLabel, family);
         layoutRow(area, manufacturerLabel, manufacturerPart);
         area.removeFromTop(8);
-        apply.setBounds(area.removeFromTop(30).removeFromLeft(90));
+        auto buttons = area.removeFromTop(30);
+        apply.setBounds(buttons.removeFromLeft(90));
+        buttons.removeFromLeft(8);
+        rotate.setBounds(buttons.removeFromLeft(110));
     }
 
 private:
@@ -1251,6 +1568,7 @@ private:
     juce::TextEditor family;
     juce::TextEditor manufacturerPart;
     juce::TextButton apply;
+    juce::TextButton rotate;
 };
 
 class AgentPanel final : public NotesPanel
@@ -1359,7 +1677,7 @@ ElectronicsWorkbench::ElectronicsWorkbench()
                                std::make_unique<ComponentLibraryPanel>(
                                    [this](juce::String id) {
                                        selectedSymbolId = id;
-                                       appendLog("Selected symbol: " + id + ". Drag it to the schematic.");
+                                       appendLog("Selected symbol: " + id + ". Click the schematic to place it, or drag it from the library.");
                                    }),
                                CreationDock::DockTargetZone::Left);
     auto schematic = std::make_unique<SchematicCanvasPanel>(
@@ -1385,6 +1703,9 @@ ElectronicsWorkbench::ElectronicsWorkbench()
                                                 juce::String family,
                                                 juce::String manufacturerPart) {
         schematicPanel->updateSelectedProperties(value, frequency, busName, family, manufacturerPart);
+    };
+    propertiesPanel->onRotate = [schematicPanel] {
+        schematicPanel->rotateSelected();
     };
     getCircuitJson = [panel = schematic.get()] { return panel->buildCircuitJson(); };
     getXyceNetlist = [panel = schematic.get()] { return panel->buildXyceNetlist(); };
