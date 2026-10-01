@@ -1591,16 +1591,15 @@ public:
         currentLimited.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffdce9ee));
         addAndMakeVisible(currentLimited);
 
-        for (auto* button : { &preset9v, &preset12v, &preset18v, &presetDyingBattery })
-        {
-            button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff253341));
-            button->setColour(juce::TextButton::textColourOffId, juce::Colour(0xffdce9ee));
-            addAndMakeVisible(*button);
-        }
-        preset9v.onClick = [this] { applyPreset("9", "100m", "0.2"); };
-        preset12v.onClick = [this] { applyPreset("12", "100m", "0.15"); };
-        preset18v.onClick = [this] { applyPreset("18", "100m", "0.15"); };
-        presetDyingBattery.onClick = [this] { applyPreset("6.8", "35m", "25"); };
+        psuPreset.addItem("9V pedal supply", 1);
+        psuPreset.addItem("12V pedal supply", 2);
+        psuPreset.addItem("18V pedal supply", 3);
+        psuPreset.addItem("Dying 9V battery", 4);
+        psuPreset.setSelectedId(1, juce::dontSendNotification);
+        psuPreset.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff253341));
+        psuPreset.setColour(juce::ComboBox::textColourId, juce::Colour(0xffdce9ee));
+        psuPreset.onChange = [this] { applySelectedPreset(); };
+        addAndMakeVisible(psuPreset);
 
         dmmTitle.setText("Precision Digital Multimeter", juce::dontSendNotification);
         dmmTitle.setFont(juce::Font(14.0f, juce::Font::bold));
@@ -1720,9 +1719,15 @@ public:
     {
         g.fillAll(juce::Colour(0xff10161d));
         auto area = getLocalBounds().reduced(12);
+        drawZone(g, psuZone, "Power Source");
+        drawZone(g, dmmZone, "Meter Setup");
+        drawZone(g, meterOptionsZone, "Meter Options");
+        drawZone(g, scopeZone, "Scope Preview");
+
         g.setColour(juce::Colour(0xff93a7b0));
         g.setFont(juce::Font(11.5f, juce::Font::bold));
         g.drawText("Mode", 12, 64, 78, 16, juce::Justification::centredLeft);
+        g.drawText("Preset", 380, 64, 150, 16, juce::Justification::centredLeft);
         g.drawText("+ net", 12, 104, 110, 16, juce::Justification::centredLeft);
         g.drawText("- net", 130, 104, 110, 16, juce::Justification::centredLeft);
         g.drawText("Volts", 12, 160, 92, 16, juce::Justification::centredLeft);
@@ -1735,7 +1740,7 @@ public:
         g.drawText("LO", 130, 280, 110, 16, juce::Justification::centredLeft);
         g.drawText("NPLC", 248, 280, 70, 16, juce::Justification::centredLeft);
         g.drawText("Sa/s", 326, 280, 90, 16, juce::Justification::centredLeft);
-        area.removeFromTop(420);
+        area.removeFromTop(scopeZone.getY() - 12);
         g.setColour(juce::Colour(0xffdce9ee));
         g.setFont(juce::Font(15.0f, juce::Font::bold));
         g.drawText("Oscilloscope / Dataset Viewer", area.removeFromTop(24), juce::Justification::centredLeft);
@@ -1769,12 +1774,15 @@ public:
         title.setBounds(area.removeFromTop(24));
         area.removeFromTop(6);
         psuTitle.setBounds(area.removeFromTop(22));
+        psuZone = juce::Rectangle<int>(8, 44, getWidth() - 16, 166);
 
         auto topRow = area.removeFromTop(28);
         addField(topRow, mode, 78);
         topRow.removeFromLeft(8);
         outputEnabled.setBounds(topRow.removeFromLeft(140));
         currentLimited.setBounds(topRow.removeFromLeft(150));
+        topRow.removeFromLeft(8);
+        psuPreset.setBounds(topRow.removeFromLeft(170));
 
         area.removeFromTop(8);
         auto nets = area.removeFromTop(48);
@@ -1793,16 +1801,8 @@ public:
         layoutEditor(electrical, "Internal R", internalResistance);
 
         area.removeFromTop(8);
-        auto presets = area.removeFromTop(28);
-        preset9v.setBounds(presets.removeFromLeft(76));
-        presets.removeFromLeft(6);
-        preset12v.setBounds(presets.removeFromLeft(76));
-        presets.removeFromLeft(6);
-        preset18v.setBounds(presets.removeFromLeft(76));
-        presets.removeFromLeft(6);
-        presetDyingBattery.setBounds(presets.removeFromLeft(130));
-
-        area.removeFromTop(14);
+        area.removeFromTop(18);
+        dmmZone = juce::Rectangle<int>(8, area.getY() - 8, getWidth() - 16, 112);
         dmmTitle.setBounds(area.removeFromTop(22));
         auto dmmTop = area.removeFromTop(32);
         dmmFunction.setBounds(dmmTop.removeFromLeft(150));
@@ -1821,7 +1821,8 @@ public:
         dmmNets.removeFromLeft(8);
         dmmSampleRate.setBounds(dmmNets.removeFromLeft(90));
 
-        area.removeFromTop(6);
+        area.removeFromTop(12);
+        meterOptionsZone = juce::Rectangle<int>(8, area.getY() - 6, getWidth() - 16, 48);
         auto toggles = area.removeFromTop(58);
         dmmTrueRms.setBounds(toggles.removeFromLeft(96));
         dmmAutoRange.setBounds(toggles.removeFromLeft(104));
@@ -1832,6 +1833,8 @@ public:
         dmmLowPass.setBounds(toggles.removeFromLeft(92));
         dmmLoZ.setBounds(toggles.removeFromLeft(72));
         dmmContinuityBeep.setBounds(toggles.removeFromLeft(80));
+        area.removeFromTop(10);
+        scopeZone = juce::Rectangle<int>(8, area.getY(), getWidth() - 16, getHeight() - area.getY() - 8);
     }
 
 private:
@@ -1850,6 +1853,32 @@ private:
         auto column = area.removeFromLeft(std::max(92, area.getWidth() / 4));
         juce::ignoreUnused(label);
         editor.setBounds(column.removeFromBottom(28));
+    }
+
+    static void drawZone(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& label)
+    {
+        if (area.isEmpty())
+            return;
+
+        auto r = area.toFloat();
+        g.setColour(juce::Colour(0xff121a22));
+        g.fillRoundedRectangle(r, 5.0f);
+        g.setColour(juce::Colour(0xff31404b));
+        g.drawRoundedRectangle(r, 5.0f, 1.0f);
+        g.setColour(juce::Colour(0xff78dcca));
+        g.setFont(juce::Font(11.5f, juce::Font::bold));
+        g.drawText(label, area.reduced(8, 2).removeFromTop(16), juce::Justification::centredLeft);
+    }
+
+    void applySelectedPreset()
+    {
+        switch (psuPreset.getSelectedId())
+        {
+            case 2: applyPreset("12", "100m", "0.15"); break;
+            case 3: applyPreset("18", "100m", "0.15"); break;
+            case 4: applyPreset("6.8", "35m", "25"); break;
+            default: applyPreset("9", "100m", "0.2"); break;
+        }
     }
 
     void applyPreset(const juce::String& volts, const juce::String& amps, const juce::String& resistance)
@@ -1873,10 +1902,7 @@ private:
     juce::TextEditor internalResistance;
     juce::ToggleButton outputEnabled;
     juce::ToggleButton currentLimited;
-    juce::TextButton preset9v { "9V" };
-    juce::TextButton preset12v { "12V" };
-    juce::TextButton preset18v { "18V" };
-    juce::TextButton presetDyingBattery { "Dying 9V" };
+    juce::ComboBox psuPreset;
     juce::Label dmmTitle;
     juce::ComboBox dmmFunction;
     juce::ComboBox dmmRange;
@@ -1894,6 +1920,10 @@ private:
     juce::ToggleButton dmmLowPass { "LPF" };
     juce::ToggleButton dmmLoZ { "LoZ" };
     juce::ToggleButton dmmContinuityBeep { "Beep" };
+    juce::Rectangle<int> psuZone;
+    juce::Rectangle<int> dmmZone;
+    juce::Rectangle<int> meterOptionsZone;
+    juce::Rectangle<int> scopeZone;
 };
 
 class ConsolePanel final : public juce::Component
