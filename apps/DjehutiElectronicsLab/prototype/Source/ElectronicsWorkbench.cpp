@@ -1735,7 +1735,7 @@ public:
         g.drawText("LO", 130, 280, 110, 16, juce::Justification::centredLeft);
         g.drawText("NPLC", 248, 280, 70, 16, juce::Justification::centredLeft);
         g.drawText("Sa/s", 326, 280, 90, 16, juce::Justification::centredLeft);
-        area.removeFromTop(322);
+        area.removeFromTop(420);
         g.setColour(juce::Colour(0xffdce9ee));
         g.setFont(juce::Font(15.0f, juce::Font::bold));
         g.drawText("Oscilloscope / Dataset Viewer", area.removeFromTop(24), juce::Justification::centredLeft);
@@ -2193,12 +2193,12 @@ ElectronicsWorkbench::ElectronicsWorkbench()
     getLabInstrumentsJson = [instrumentPanel] { return instrumentPanel->buildInstrumentJson(); };
     dockManager->registerPanel("schematic", "Schematic", std::move(schematic), CreationDock::DockTargetZone::CenterTab);
     dockManager->registerPanel("simulation", "Simulation", std::make_unique<SimulationPanel>(), CreationDock::DockTargetZone::CenterTab);
-    dockManager->registerPanel("scope", "Lab Bench", std::move(instruments), CreationDock::DockTargetZone::Bottom);
     dockManager->registerPanel("console", "Frust Math Console", std::make_unique<ConsolePanel>(logConsole), CreationDock::DockTargetZone::Bottom);
     dockManager->registerPanel("agent", "BYOK Agent", std::make_unique<AgentPanel>(), CreationDock::DockTargetZone::Right);
     dockManager->registerPanel("properties", "Properties", std::move(properties), CreationDock::DockTargetZone::Right);
     dockManager->registerPanel("ingestion", "Spec Ingestion", std::make_unique<SpecIngestionPanel>(), CreationDock::DockTargetZone::Right);
     dockManager->registerPanel("sourcing", "Parts Sourcing", std::make_unique<PartsSourcingPanel>(), CreationDock::DockTargetZone::Right);
+    dockManager->registerPanel("lab_bench", "Lab Bench", std::move(instruments), CreationDock::DockTargetZone::Right);
 
     dockManager->loadLayoutFromFile(layoutFile());
     appendLog("Electronics research shell initialized.");
