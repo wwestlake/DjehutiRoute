@@ -20,6 +20,13 @@ void styleTextEditor(juce::TextEditor& editor, bool mono = false)
     editor.setColour(juce::TextEditor::textColourId, juce::Colour(0xffdce9ee));
 }
 
+void showCursorForEvent(const juce::MouseEvent& event, juce::MouseCursor cursor)
+{
+    auto source = event.source;
+    if (source.hasMouseCursor())
+        source.showMouseCursor(cursor);
+}
+
 class NotesPanel : public juce::Component
 {
 public:
@@ -138,7 +145,10 @@ public:
 
         repaint();
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this))
+        {
+            showCursorForEvent(event, juce::MouseCursor::DraggingHandCursor);
             container->startDragging("symbol:" + symbol.id, this);
+        }
     }
 
     void mouseDoubleClick(const juce::MouseEvent& event) override
@@ -204,6 +214,7 @@ private:
             if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this))
             {
                 const auto& symbol = listModel.items[(size_t)dragStartRow];
+                showCursorForEvent(event, juce::MouseCursor::DraggingHandCursor);
                 container->startDragging("symbol:" + symbol.id, this);
             }
         }
@@ -216,6 +227,7 @@ private:
         void mouseUp(const juce::MouseEvent& event) override
         {
             juce::ListBox::mouseUp(event);
+            showCursorForEvent(event, juce::MouseCursor::NormalCursor);
             dragStarted = false;
             dragStartRow = -1;
         }
@@ -2382,7 +2394,15 @@ public:
             return;
 
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this))
+        {
+            showCursorForEvent(event, juce::MouseCursor::DraggingHandCursor);
             container->startDragging("probe:" + probeId, this);
+        }
+    }
+
+    void mouseUp(const juce::MouseEvent& event) override
+    {
+        showCursorForEvent(event, juce::MouseCursor::NormalCursor);
     }
 
     void resized() override
