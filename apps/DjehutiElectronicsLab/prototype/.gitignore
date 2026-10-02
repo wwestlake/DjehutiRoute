@@ -1,4 +1,0 @@
-build/
-bin/
-config/*.local.json
-sim/xyce/runs/
