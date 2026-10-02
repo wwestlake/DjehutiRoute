@@ -358,6 +358,15 @@ public:
           onStatus(std::move(onMessage))
     {
         setWantsKeyboardFocus(true);
+        probeMode.addItem("Select / Wire", 1);
+        probeMode.addItem("DMM HI", 2);
+        probeMode.addItem("DMM LO", 3);
+        probeMode.addItem("Scope CH1", 4);
+        probeMode.addItem("Scope CH2", 5);
+        probeMode.setSelectedId(1, juce::dontSendNotification);
+        probeMode.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff253341));
+        probeMode.setColour(juce::ComboBox::textColourId, juce::Colour(0xffdce9ee));
+        addAndMakeVisible(probeMode);
     }
 
     void setSelectionListener(std::function<void(int, juce::String, juce::String, juce::String, juce::String, juce::String, juce::String, juce::String)> listener)
@@ -445,6 +454,19 @@ public:
             if (i != 0) text << ",\n";
             text << "    { \"a\": " << quote(nodeLabel(wire.a))
                  << ", \"b\": " << quote(nodeLabel(wire.b)) << " }";
+        }
+        text << "\n  ],\n";
+        text << "  \"probes\": [\n";
+        for (size_t i = 0; i < probes.size(); ++i)
+        {
+            const auto& probe = probes[i];
+            if (i != 0) text << ",\n";
+            text << "    { \"id\": " << quote(probe.id)
+                 << ", \"label\": " << quote(probe.label)
+                 << ", \"role\": " << quote(probe.role)
+                 << ", \"target\": " << quote(nodeLabel(probe.node))
+                 << ", \"net\": " << quote(netForNode(probe.node, netNames))
+                 << " }";
         }
         text << "\n  ]\n";
         text << "}\n";
@@ -557,13 +579,16 @@ public:
         drawGrid(g);
         drawWires(g);
         drawInstances(g);
+        drawProbes(g);
         drawPendingWire(g);
 
         g.setColour(juce::Colour(0xff93a7b0));
         g.setFont(juce::Font(13.0f));
         const auto stampOn = getStampPlacementEnabled != nullptr && getStampPlacementEnabled();
         g.drawText(stampOn ? "Stamp mode: click empty canvas to place selected symbols, drag selected parts to move, R rotates."
-                           : "Drag components from the library. Drag selected parts to move. Use Rotate in Properties to turn parts.",
+                           : probeMode.getSelectedId() == 1
+                                ? "Drag components from the library. Click pins to wire. Use probe mode to place instrument probes."
+                                : "Probe mode: click a pin or wire to assign " + probeMode.getText() + ".",
                    getLocalBounds().reduced(12).removeFromBottom(24),
                    juce::Justification::centredLeft);
 
@@ -582,6 +607,19 @@ public:
     {
         grabKeyboardFocus();
         const auto p = snap(event.position);
+        if (probeMode.getSelectedId() != 1)
+        {
+            if (auto node = nodeAt(event.position, p); node.isValid())
+            {
+                assignProbe(node);
+                repaint();
+                return;
+            }
+
+            if (onStatus) onStatus("Probe assignment needs a pin, junction, or wire.");
+            return;
+        }
+
         if (auto pin = hitTestPin(event.position); pin.instanceIndex >= 0)
         {
             handleWireNodeClick(WireNode::forPin(pin));
@@ -620,6 +658,11 @@ public:
             placeSymbol(selected, p);
             repaint();
         }
+    }
+
+    void resized() override
+    {
+        probeMode.setBounds(getLocalBounds().reduced(10).removeFromTop(28).removeFromRight(150));
     }
 
     void mouseDrag(const juce::MouseEvent& event) override
@@ -748,6 +791,15 @@ private:
         WireNode b;
     };
 
+    struct Probe
+    {
+        juce::String id;
+        juce::String label;
+        juce::String role;
+        WireNode node;
+        juce::Colour colour;
+    };
+
     struct DisjointSet
     {
         std::vector<int> parent;
@@ -777,6 +829,7 @@ private:
     std::vector<Instance> instances;
     std::vector<Wire> wires;
     std::vector<juce::Point<float>> junctions;
+    std::vector<Probe> probes;
     WireNode pendingNode;
     int selectedInstance = -1;
     int nextRef = 1;
@@ -788,6 +841,7 @@ private:
     std::function<bool()> getStampPlacementEnabled;
     std::function<void(juce::String)> onStatus;
     std::function<void(int, juce::String, juce::String, juce::String, juce::String, juce::String, juce::String, juce::String)> onSelectionChanged;
+    juce::ComboBox probeMode;
 
     static juce::String quote(const juce::String& text)
     {
@@ -983,7 +1037,7 @@ private:
 
         std::map<int, int> assigned;
         int nextNet = 1;
-        for (int pin = 0; pin < totalPins; ++pin)
+        for (int pin = 0; pin < totalNodes; ++pin)
         {
             const auto root = sets.find(pin);
             if (groundRoots.count(root) != 0)
@@ -1003,6 +1057,15 @@ private:
         if (pin.instanceIndex < 0 || pin.instanceIndex >= (int)instances.size())
             return "floating";
         const auto ordinal = pinOrdinal(pin);
+        const auto found = netNames.find(ordinal);
+        return found != netNames.end() ? found->second : "floating";
+    }
+
+    juce::String netForNode(const WireNode& node, const std::map<int, juce::String>& netNames) const
+    {
+        const auto ordinal = nodeOrdinal(node);
+        if (ordinal < 0)
+            return "floating";
         const auto found = netNames.find(ordinal);
         return found != netNames.end() ? found->second : "floating";
     }
@@ -1124,6 +1187,20 @@ private:
         return -1;
     }
 
+    WireNode nodeAt(juce::Point<float> rawPosition, juce::Point<float> snappedPosition)
+    {
+        if (auto pin = hitTestPin(rawPosition); pin.instanceIndex >= 0)
+            return WireNode::forPin(pin);
+
+        if (auto junction = hitTestJunction(rawPosition); junction >= 0)
+            return WireNode::forJunction(junction);
+
+        if (auto wireIndex = hitTestWire(rawPosition); wireIndex >= 0)
+            return createJunctionOnWire(wireIndex, snappedPosition);
+
+        return {};
+    }
+
     static juce::Point<float> rotateOffset(juce::Point<float> offset, int rotation)
     {
         switch (((rotation % 360) + 360) % 360)
@@ -1165,6 +1242,44 @@ private:
         wires.push_back({ pendingNode, node });
         if (onStatus) onStatus("Connected " + nodeLabel(pendingNode) + " to " + nodeLabel(node) + ".");
         pendingNode = {};
+    }
+
+    void assignProbe(WireNode node)
+    {
+        const auto selected = probeMode.getSelectedId();
+        const auto id = selected == 2 ? juce::String("DMM_HI") :
+                        selected == 3 ? juce::String("DMM_LO") :
+                        selected == 4 ? juce::String("SCOPE_CH1") :
+                        selected == 5 ? juce::String("SCOPE_CH2") :
+                        juce::String();
+        if (id.isEmpty())
+            return;
+
+        const auto label = selected == 2 ? juce::String("DMM+") :
+                           selected == 3 ? juce::String("DMM-") :
+                           selected == 4 ? juce::String("CH1") :
+                           juce::String("CH2");
+        const auto role = selected == 2 ? juce::String("dmm.high") :
+                          selected == 3 ? juce::String("dmm.low") :
+                          selected == 4 ? juce::String("scope.channel1") :
+                          juce::String("scope.channel2");
+        const auto colour = selected == 2 ? juce::Colour(0xffffc857) :
+                            selected == 3 ? juce::Colour(0xff93a7b0) :
+                            selected == 4 ? juce::Colour(0xff78dcca) :
+                            juce::Colour(0xffff6b6b);
+
+        auto found = std::find_if(probes.begin(), probes.end(), [&](const Probe& probe) { return probe.id == id; });
+        if (found != probes.end())
+        {
+            found->node = node;
+            found->colour = colour;
+        }
+        else
+        {
+            probes.push_back({ id, label, role, node, colour });
+        }
+
+        if (onStatus) onStatus("Assigned " + label + " to " + nodeLabel(node) + ".");
     }
 
     WireNode createJunctionOnWire(int wireIndex, juce::Point<float> position)
@@ -1491,6 +1606,29 @@ private:
         g.setColour(juce::Colour(0xffffc857));
         for (const auto& junction : junctions)
             g.fillEllipse(junction.x - 4.0f, junction.y - 4.0f, 8.0f, 8.0f);
+    }
+
+    void drawProbes(juce::Graphics& g)
+    {
+        for (const auto& probe : probes)
+        {
+            const auto p = nodePosition(probe.node);
+            if (p == juce::Point<float>())
+                continue;
+
+            g.setColour(probe.colour.withAlpha(0.24f));
+            g.fillEllipse(p.x - 13.0f, p.y - 13.0f, 26.0f, 26.0f);
+            g.setColour(probe.colour);
+            g.drawEllipse(p.x - 10.0f, p.y - 10.0f, 20.0f, 20.0f, 2.0f);
+            g.fillEllipse(p.x - 3.0f, p.y - 3.0f, 6.0f, 6.0f);
+
+            auto label = juce::Rectangle<int>((int)p.x + 10, (int)p.y - 20, 64, 18);
+            g.setColour(juce::Colour(0xdd0e141a));
+            g.fillRoundedRectangle(label.toFloat(), 3.0f);
+            g.setColour(probe.colour);
+            g.setFont(juce::Font(11.0f, juce::Font::bold));
+            g.drawText(probe.label, label.reduced(4, 0), juce::Justification::centredLeft);
+        }
     }
 
     void drawPendingWire(juce::Graphics& g)
