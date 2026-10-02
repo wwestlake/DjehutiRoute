@@ -587,7 +587,7 @@ public:
         const auto stampOn = getStampPlacementEnabled != nullptr && getStampPlacementEnabled();
         g.drawText(stampOn ? "Stamp mode: click empty canvas to place selected symbols, drag selected parts to move, R rotates."
                            : probeMode.getSelectedId() == 1
-                                ? "Drag components from the library. Click pins to wire. Use probe mode to place instrument probes."
+                                ? "Drag from pins or wires to connect. Right-click a wire or connector to disconnect."
                                 : "Probe mode: click a pin or wire to assign " + probeMode.getText() + ".",
                    getLocalBounds().reduced(12).removeFromBottom(24),
                    juce::Justification::centredLeft);
@@ -607,6 +607,13 @@ public:
     {
         grabKeyboardFocus();
         const auto p = snap(event.position);
+        if (event.mods.isRightButtonDown())
+        {
+            disconnectAt(event.position);
+            repaint();
+            return;
+        }
+
         if (probeMode.getSelectedId() != 1)
         {
             if (auto node = nodeAt(event.position, p); node.isValid())
@@ -622,21 +629,21 @@ public:
 
         if (auto pin = hitTestPin(event.position); pin.instanceIndex >= 0)
         {
-            handleWireNodeClick(WireNode::forPin(pin));
+            beginWireDrag(WireNode::forPin(pin), event.position);
             repaint();
             return;
         }
 
         if (auto junction = hitTestJunction(event.position); junction >= 0)
         {
-            handleWireNodeClick(WireNode::forJunction(junction));
+            beginWireDrag(WireNode::forJunction(junction), event.position);
             repaint();
             return;
         }
 
         if (auto wireIndex = hitTestWire(event.position); wireIndex >= 0)
         {
-            handleWireNodeClick(createJunctionOnWire(wireIndex, p));
+            beginWireDrag(createJunctionOnWire(wireIndex, p), event.position);
             repaint();
             return;
         }
@@ -667,6 +674,13 @@ public:
 
     void mouseDrag(const juce::MouseEvent& event) override
     {
+        if (wireDragging)
+        {
+            wireDragPosition = event.position;
+            repaint();
+            return;
+        }
+
         if (!draggingInstance || selectedInstance < 0 || selectedInstance >= (int)instances.size())
             return;
 
@@ -676,8 +690,14 @@ public:
         repaint();
     }
 
-    void mouseUp(const juce::MouseEvent&) override
+    void mouseUp(const juce::MouseEvent& event) override
     {
+        if (wireDragging)
+        {
+            finishWireDrag(event.position);
+            repaint();
+        }
+
         draggingInstance = false;
     }
 
@@ -685,7 +705,7 @@ public:
     {
         if (key == juce::KeyPress::escapeKey)
         {
-            pendingNode = {};
+            wireDragging = false;
             repaint();
             return true;
         }
@@ -830,13 +850,15 @@ private:
     std::vector<Wire> wires;
     std::vector<juce::Point<float>> junctions;
     std::vector<Probe> probes;
-    WireNode pendingNode;
+    WireNode wireDragStart;
     int selectedInstance = -1;
     int nextRef = 1;
     bool dragHover = false;
+    bool wireDragging = false;
     bool draggingInstance = false;
     juce::Point<float> dragStartMouse;
     juce::Point<float> dragStartPosition;
+    juce::Point<float> wireDragPosition;
     std::function<juce::String()> getSelectedSymbolId;
     std::function<bool()> getStampPlacementEnabled;
     std::function<void(juce::String)> onStatus;
@@ -1120,6 +1142,71 @@ private:
         return {};
     }
 
+    static bool sameNode(const WireNode& a, const WireNode& b)
+    {
+        if (a.isPin() && b.isPin())
+            return a.pin.instanceIndex == b.pin.instanceIndex && a.pin.pinIndex == b.pin.pinIndex;
+        if (a.isJunction() && b.isJunction())
+            return a.junctionIndex == b.junctionIndex;
+        return false;
+    }
+
+    juce::Point<float> nodeLeadDirection(const WireNode& node) const
+    {
+        if (!node.isPin() || node.pin.instanceIndex < 0 || node.pin.instanceIndex >= (int)instances.size())
+            return {};
+
+        const auto& instance = instances[(size_t)node.pin.instanceIndex];
+        const auto symbol = symbolFor(instance.symbolId);
+        if (node.pin.pinIndex < 0 || node.pin.pinIndex >= (int)symbol.pins.size())
+            return {};
+
+        const auto offset = rotateOffset(symbol.pins[(size_t)node.pin.pinIndex].offset, instance.rotation);
+        const auto length = std::sqrt(offset.x * offset.x + offset.y * offset.y);
+        if (length <= 0.001f)
+            return {};
+
+        return { offset.x / length, offset.y / length };
+    }
+
+    std::vector<juce::Point<float>> routedWirePoints(const WireNode& a, const WireNode& b) const
+    {
+        return routedWirePoints(a, nodePosition(b), nodeLeadDirection(b));
+    }
+
+    std::vector<juce::Point<float>> routedWirePoints(const WireNode& a,
+                                                     juce::Point<float> b,
+                                                     juce::Point<float> bLead) const
+    {
+        constexpr auto leadLength = 24.0f;
+        const auto start = nodePosition(a);
+        const auto aLead = nodeLeadDirection(a);
+        const auto startRun = aLead == juce::Point<float>() ? start : start + aLead * leadLength;
+        const auto endRun = bLead == juce::Point<float>() ? b : b + bLead * leadLength;
+
+        std::vector<juce::Point<float>> points;
+        points.push_back(start);
+        if (startRun.getDistanceFrom(start) > 0.1f)
+            points.push_back(startRun);
+
+        if (std::abs(startRun.x - endRun.x) <= 0.1f || std::abs(startRun.y - endRun.y) <= 0.1f)
+        {
+            points.push_back(endRun);
+        }
+        else
+        {
+            const auto midX = std::round((startRun.x + endRun.x) * 0.5f / 24.0f) * 24.0f;
+            points.push_back({ midX, startRun.y });
+            points.push_back({ midX, endRun.y });
+            points.push_back(endRun);
+        }
+
+        if (b.getDistanceFrom(endRun) > 0.1f)
+            points.push_back(b);
+
+        return points;
+    }
+
     PinRef hitTestPin(juce::Point<float> p) const
     {
         for (int i = (int)instances.size() - 1; i >= 0; --i)
@@ -1157,14 +1244,11 @@ private:
 
     float distanceToWire(juce::Point<float> p, const Wire& wire) const
     {
-        const auto a = nodePosition(wire.a);
-        const auto b = nodePosition(wire.b);
-        const auto midX = std::round((a.x + b.x) * 0.5f / 24.0f) * 24.0f;
-        const juce::Point<float> c { midX, a.y };
-        const juce::Point<float> d { midX, b.y };
-        return std::min({ distanceToSegment(p, a, c),
-                          distanceToSegment(p, c, d),
-                          distanceToSegment(p, d, b) });
+        const auto points = routedWirePoints(wire.a, wire.b);
+        auto best = std::numeric_limits<float>::max();
+        for (size_t i = 1; i < points.size(); ++i)
+            best = std::min(best, distanceToSegment(p, points[i - 1], points[i]));
+        return best;
     }
 
     int hitTestWire(juce::Point<float> p) const
@@ -1224,24 +1308,80 @@ private:
         return r.translated(instance.position.x, instance.position.y);
     }
 
-    void handleWireNodeClick(WireNode node)
+    void beginWireDrag(WireNode node, juce::Point<float> position)
     {
         if (!node.isValid())
             return;
 
-        if (!pendingNode.isValid())
+        wireDragStart = node;
+        wireDragPosition = position;
+        wireDragging = true;
+        draggingInstance = false;
+        if (onStatus) onStatus("Wire drag: " + nodeLabel(node) + ". Release on another pin or wire.");
+    }
+
+    void finishWireDrag(juce::Point<float> position)
+    {
+        wireDragging = false;
+        if (!wireDragStart.isValid())
+            return;
+
+        const auto target = nodeAt(position, snap(position));
+        if (!target.isValid())
         {
-            pendingNode = node;
-            if (onStatus) onStatus("Wire start: " + nodeLabel(node) + ". Click another pin or wire to connect.");
+            if (onStatus) onStatus("Wire cancelled.");
+            wireDragStart = {};
             return;
         }
 
-        if (nodeLabel(pendingNode) == nodeLabel(node))
+        if (sameNode(wireDragStart, target))
+        {
+            if (onStatus) onStatus("Wire cancelled: start and end are the same connector.");
+            wireDragStart = {};
             return;
+        }
 
-        wires.push_back({ pendingNode, node });
-        if (onStatus) onStatus("Connected " + nodeLabel(pendingNode) + " to " + nodeLabel(node) + ".");
-        pendingNode = {};
+        wires.push_back({ wireDragStart, target });
+        if (onStatus) onStatus("Connected " + nodeLabel(wireDragStart) + " to " + nodeLabel(target) + ".");
+        wireDragStart = {};
+    }
+
+    void disconnectAt(juce::Point<float> position)
+    {
+        if (auto wireIndex = hitTestWire(position); wireIndex >= 0)
+        {
+            const auto removed = wires[(size_t)wireIndex];
+            wires.erase(wires.begin() + wireIndex);
+            if (onStatus) onStatus("Disconnected wire " + nodeLabel(removed.a) + " to " + nodeLabel(removed.b) + ".");
+            return;
+        }
+
+        if (auto pin = hitTestPin(position); pin.instanceIndex >= 0)
+        {
+            disconnectNode(WireNode::forPin(pin));
+            return;
+        }
+
+        if (auto junction = hitTestJunction(position); junction >= 0)
+        {
+            disconnectNode(WireNode::forJunction(junction));
+            return;
+        }
+
+        if (onStatus) onStatus("Nothing to disconnect here.");
+    }
+
+    void disconnectNode(WireNode node)
+    {
+        const auto before = wires.size();
+        wires.erase(std::remove_if(wires.begin(), wires.end(), [&](const Wire& wire) {
+            return sameNode(wire.a, node) || sameNode(wire.b, node);
+        }), wires.end());
+
+        const auto removed = before - wires.size();
+        if (onStatus)
+            onStatus(removed > 0 ? "Disconnected " + juce::String((int)removed) + " wire(s) from " + nodeLabel(node) + "."
+                                 : "No wires connected to " + nodeLabel(node) + ".");
     }
 
     void assignProbe(WireNode node)
@@ -1598,10 +1738,24 @@ private:
         g.strokePath(path, juce::PathStrokeType(width));
     }
 
+    void drawRoutedWire(juce::Graphics& g, const std::vector<juce::Point<float>>& points, juce::Colour colour, float width)
+    {
+        if (points.size() < 2)
+            return;
+
+        juce::Path path;
+        path.startNewSubPath(points.front());
+        for (size_t i = 1; i < points.size(); ++i)
+            path.lineTo(points[i]);
+
+        g.setColour(colour);
+        g.strokePath(path, juce::PathStrokeType(width));
+    }
+
     void drawWires(juce::Graphics& g)
     {
         for (const auto& wire : wires)
-            drawRightAngleWire(g, nodePosition(wire.a), nodePosition(wire.b), juce::Colour(0xfff4d35e), 2.0f);
+            drawRoutedWire(g, routedWirePoints(wire.a, wire.b), juce::Colour(0xfff4d35e), 2.0f);
 
         g.setColour(juce::Colour(0xffffc857));
         for (const auto& junction : junctions)
@@ -1633,10 +1787,11 @@ private:
 
     void drawPendingWire(juce::Graphics& g)
     {
-        if (!pendingNode.isValid()) return;
-        const auto start = nodePosition(pendingNode);
-        const auto end = getMouseXYRelative().toFloat();
-        drawRightAngleWire(g, start, end, juce::Colour(0x99f4d35e), 1.5f);
+        if (!wireDragging || !wireDragStart.isValid()) return;
+        drawRoutedWire(g,
+                       routedWirePoints(wireDragStart, wireDragPosition, {}),
+                       juce::Colour(0x99f4d35e),
+                       1.5f);
     }
 
     /*
