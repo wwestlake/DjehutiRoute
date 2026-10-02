@@ -589,14 +589,7 @@ public:
                    juce::Justification::centredLeft);
 
         if (dragHover)
-        {
-            g.setColour(juce::Colour(0x335aa7c8));
-            g.fillRect(getLocalBounds());
-            g.setColour(juce::Colour(0xff78dcca));
-            g.drawRect(getLocalBounds().reduced(4), 2);
-            g.setFont(juce::Font(15.0f, juce::Font::bold));
-            g.drawText(dragMessage, getLocalBounds().reduced(18).removeFromTop(28), juce::Justification::centredRight);
-        }
+            g.drawText(dragMessage, getLocalBounds().reduced(12).removeFromBottom(24), juce::Justification::centredRight);
     }
 
     void mouseDown(const juce::MouseEvent& event) override
@@ -741,18 +734,21 @@ public:
         dragMessage = details.description.toString().startsWith("probe:")
             ? "Drop probe on a pin or wire"
             : "Drop symbol on schematic";
+        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
         repaint();
     }
 
     void itemDragExit(const SourceDetails&) override
     {
         dragHover = false;
+        setMouseCursor(juce::MouseCursor::NormalCursor);
         repaint();
     }
 
     void itemDropped(const SourceDetails& details) override
     {
         dragHover = false;
+        setMouseCursor(juce::MouseCursor::NormalCursor);
         const auto description = details.description.toString();
         if (description.startsWith("probe:"))
         {
