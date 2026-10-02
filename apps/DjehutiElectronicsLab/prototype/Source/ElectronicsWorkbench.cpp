@@ -358,21 +358,17 @@ public:
           onStatus(std::move(onMessage))
     {
         setWantsKeyboardFocus(true);
-        probeMode.addItem("Select / Wire", 1);
-        probeMode.addItem("DMM HI", 2);
-        probeMode.addItem("DMM LO", 3);
-        probeMode.addItem("Scope CH1", 4);
-        probeMode.addItem("Scope CH2", 5);
-        probeMode.setSelectedId(1, juce::dontSendNotification);
-        probeMode.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff253341));
-        probeMode.setColour(juce::ComboBox::textColourId, juce::Colour(0xffdce9ee));
-        addAndMakeVisible(probeMode);
     }
 
     void setSelectionListener(std::function<void(int, juce::String, juce::String, juce::String, juce::String, juce::String, juce::String, juce::String)> listener)
     {
         onSelectionChanged = std::move(listener);
         notifySelection();
+    }
+
+    void setProbeListener(std::function<void(juce::String, juce::String, juce::String)> listener)
+    {
+        onProbeChanged = std::move(listener);
     }
 
     void updateSelectedProperties(const juce::String& value,
@@ -586,9 +582,7 @@ public:
         g.setFont(juce::Font(13.0f));
         const auto stampOn = getStampPlacementEnabled != nullptr && getStampPlacementEnabled();
         g.drawText(stampOn ? "Stamp mode: click empty canvas to place selected symbols, drag selected parts to move, R rotates."
-                           : probeMode.getSelectedId() == 1
-                                ? "Drag from pins or wires to connect. Right-click a wire or connector to disconnect."
-                                : "Probe mode: click a pin or wire to assign " + probeMode.getText() + ".",
+                           : "Drag from pins or wires to connect. Drag instrument probes from the Lab Bench. Right-click removes wires or probes.",
                    getLocalBounds().reduced(12).removeFromBottom(24),
                    juce::Justification::centredLeft);
 
@@ -599,7 +593,7 @@ public:
             g.setColour(juce::Colour(0xff78dcca));
             g.drawRect(getLocalBounds().reduced(4), 2);
             g.setFont(juce::Font(15.0f, juce::Font::bold));
-            g.drawText("Drop symbol on schematic", getLocalBounds().reduced(18).removeFromTop(28), juce::Justification::centredRight);
+            g.drawText(dragMessage, getLocalBounds().reduced(18).removeFromTop(28), juce::Justification::centredRight);
         }
     }
 
@@ -609,21 +603,13 @@ public:
         const auto p = snap(event.position);
         if (event.mods.isRightButtonDown())
         {
-            disconnectAt(event.position);
-            repaint();
-            return;
-        }
-
-        if (probeMode.getSelectedId() != 1)
-        {
-            if (auto node = nodeAt(event.position, p); node.isValid())
+            if (releaseProbeAt(event.position))
             {
-                assignProbe(node);
                 repaint();
                 return;
             }
-
-            if (onStatus) onStatus("Probe assignment needs a pin, junction, or wire.");
+            disconnectAt(event.position);
+            repaint();
             return;
         }
 
@@ -667,10 +653,7 @@ public:
         }
     }
 
-    void resized() override
-    {
-        probeMode.setBounds(getLocalBounds().reduced(10).removeFromTop(28).removeFromRight(150));
-    }
+    void resized() override {}
 
     void mouseDrag(const juce::MouseEvent& event) override
     {
@@ -719,12 +702,16 @@ public:
 
     bool isInterestedInDragSource(const SourceDetails& details) override
     {
-        return details.description.toString().startsWith("symbol:");
+        const auto description = details.description.toString();
+        return description.startsWith("symbol:") || description.startsWith("probe:");
     }
 
-    void itemDragEnter(const SourceDetails&) override
+    void itemDragEnter(const SourceDetails& details) override
     {
         dragHover = true;
+        dragMessage = details.description.toString().startsWith("probe:")
+            ? "Drop probe on a pin or wire"
+            : "Drop symbol on schematic";
         repaint();
     }
 
@@ -738,6 +725,21 @@ public:
     {
         dragHover = false;
         const auto description = details.description.toString();
+        if (description.startsWith("probe:"))
+        {
+            const auto node = nodeAt(details.localPosition.toFloat(), snap(details.localPosition.toFloat()));
+            if (!node.isValid())
+            {
+                if (onStatus) onStatus("Probe drop needs a pin, junction, or wire.");
+                repaint();
+                return;
+            }
+
+            assignProbe(description.fromFirstOccurrenceOf("probe:", false, false), node);
+            repaint();
+            return;
+        }
+
         if (!description.startsWith("symbol:"))
             return;
 
@@ -854,6 +856,7 @@ private:
     int selectedInstance = -1;
     int nextRef = 1;
     bool dragHover = false;
+    juce::String dragMessage = "Drop symbol on schematic";
     bool wireDragging = false;
     bool draggingInstance = false;
     juce::Point<float> dragStartMouse;
@@ -862,8 +865,8 @@ private:
     std::function<juce::String()> getSelectedSymbolId;
     std::function<bool()> getStampPlacementEnabled;
     std::function<void(juce::String)> onStatus;
+    std::function<void(juce::String, juce::String, juce::String)> onProbeChanged;
     std::function<void(int, juce::String, juce::String, juce::String, juce::String, juce::String, juce::String, juce::String)> onSelectionChanged;
-    juce::ComboBox probeMode;
 
     static juce::String quote(const juce::String& text)
     {
@@ -1384,29 +1387,14 @@ private:
                                  : "No wires connected to " + nodeLabel(node) + ".");
     }
 
-    void assignProbe(WireNode node)
+    void assignProbe(const juce::String& id, WireNode node)
     {
-        const auto selected = probeMode.getSelectedId();
-        const auto id = selected == 2 ? juce::String("DMM_HI") :
-                        selected == 3 ? juce::String("DMM_LO") :
-                        selected == 4 ? juce::String("SCOPE_CH1") :
-                        selected == 5 ? juce::String("SCOPE_CH2") :
-                        juce::String();
-        if (id.isEmpty())
+        const auto label = probeLabel(id);
+        if (label.isEmpty())
             return;
 
-        const auto label = selected == 2 ? juce::String("DMM+") :
-                           selected == 3 ? juce::String("DMM-") :
-                           selected == 4 ? juce::String("CH1") :
-                           juce::String("CH2");
-        const auto role = selected == 2 ? juce::String("dmm.high") :
-                          selected == 3 ? juce::String("dmm.low") :
-                          selected == 4 ? juce::String("scope.channel1") :
-                          juce::String("scope.channel2");
-        const auto colour = selected == 2 ? juce::Colour(0xffffc857) :
-                            selected == 3 ? juce::Colour(0xff93a7b0) :
-                            selected == 4 ? juce::Colour(0xff78dcca) :
-                            juce::Colour(0xffff6b6b);
+        const auto role = probeRole(id);
+        const auto colour = probeColour(id);
 
         auto found = std::find_if(probes.begin(), probes.end(), [&](const Probe& probe) { return probe.id == id; });
         if (found != probes.end())
@@ -1420,6 +1408,52 @@ private:
         }
 
         if (onStatus) onStatus("Assigned " + label + " to " + nodeLabel(node) + ".");
+        if (onProbeChanged) onProbeChanged(id, label, nodeLabel(node));
+    }
+
+    bool releaseProbeAt(juce::Point<float> position)
+    {
+        for (int i = (int)probes.size() - 1; i >= 0; --i)
+        {
+            const auto p = nodePosition(probes[(size_t)i].node);
+            if (p.getDistanceFrom(position) > 16.0f)
+                continue;
+
+            const auto id = probes[(size_t)i].id;
+            const auto label = probes[(size_t)i].label;
+            probes.erase(probes.begin() + i);
+            if (onStatus) onStatus("Removed " + label + " from schematic.");
+            if (onProbeChanged) onProbeChanged(id, label, {});
+            return true;
+        }
+        return false;
+    }
+
+    static juce::String probeLabel(const juce::String& id)
+    {
+        if (id == "DMM_HI") return "DMM+";
+        if (id == "DMM_LO") return "DMM-";
+        if (id == "SCOPE_CH1") return "CH1";
+        if (id == "SCOPE_CH2") return "CH2";
+        return {};
+    }
+
+    static juce::String probeRole(const juce::String& id)
+    {
+        if (id == "DMM_HI") return "dmm.high";
+        if (id == "DMM_LO") return "dmm.low";
+        if (id == "SCOPE_CH1") return "scope.channel1";
+        if (id == "SCOPE_CH2") return "scope.channel2";
+        return {};
+    }
+
+    static juce::Colour probeColour(const juce::String& id)
+    {
+        if (id == "DMM_HI") return juce::Colour(0xffffc857);
+        if (id == "DMM_LO") return juce::Colour(0xff93a7b0);
+        if (id == "SCOPE_CH1") return juce::Colour(0xff78dcca);
+        if (id == "SCOPE_CH2") return juce::Colour(0xffff6b6b);
+        return juce::Colour(0xffdce9ee);
     }
 
     WireNode createJunctionOnWire(int wireIndex, juce::Point<float> position)
@@ -1926,9 +1960,11 @@ public:
             addAndMakeVisible(*editor);
         }
         dmmHighNet.setText("probe", juce::dontSendNotification);
-        dmmLowNet.setText("0", juce::dontSendNotification);
+        dmmLowNet.setText("bench", juce::dontSendNotification);
         dmmNplc.setText("10", juce::dontSendNotification);
         dmmSampleRate.setText("1000", juce::dontSendNotification);
+        dmmHighNet.setReadOnly(true);
+        dmmLowNet.setReadOnly(true);
 
         dmmDisplay.setText("+0.000000 V", juce::dontSendNotification);
         dmmDisplay.setFont(juce::Font(20.0f, juce::Font::bold));
@@ -1946,6 +1982,20 @@ public:
         dmmTrueRms.setToggleState(true, juce::dontSendNotification);
         dmmAutoRange.setToggleState(true, juce::dontSendNotification);
         dmmContinuityBeep.setToggleState(true, juce::dontSendNotification);
+    }
+
+    void setProbeTarget(const juce::String& id, const juce::String& target)
+    {
+        if (id == "DMM_HI")
+            dmmHighNet.setText(target.isEmpty() ? "bench" : target, juce::dontSendNotification);
+        else if (id == "DMM_LO")
+            dmmLowNet.setText(target.isEmpty() ? "bench" : target, juce::dontSendNotification);
+        else if (id == "SCOPE_CH1")
+            scopeCh1Target = target;
+        else if (id == "SCOPE_CH2")
+            scopeCh2Target = target;
+
+        repaint();
     }
 
     juce::String buildInstrumentJson() const
@@ -2002,6 +2052,15 @@ public:
         text << "        \"graphing\": true,\n";
         text << "        \"displayViews\": [\"numeric\", \"trend\", \"histogram\", \"bar\", \"waveform\"]\n";
         text << "      }\n";
+        text << "    },\n";
+        text << "    {\n";
+        text << "      \"id\": \"SCOPE1\",\n";
+        text << "      \"type\": \"digital_oscilloscope\",\n";
+        text << "      \"channels\": [\n";
+        text << "        { \"name\": \"CH1\", \"target\": " << quote(scopeCh1Target.isEmpty() ? "bench" : scopeCh1Target) << " },\n";
+        text << "        { \"name\": \"CH2\", \"target\": " << quote(scopeCh2Target.isEmpty() ? "bench" : scopeCh2Target) << " }\n";
+        text << "      ],\n";
+        text << "      \"display\": { \"view\": \"waveform\", \"grid\": true }\n";
         text << "    }\n";
         text << "  ]\n";
         text << "}\n";
@@ -2029,10 +2088,15 @@ public:
         g.drawText("Internal R", 312, 160, 92, 16, juce::Justification::centredLeft);
         g.drawText("Function", 12, 240, 150, 16, juce::Justification::centredLeft);
         g.drawText("Range", 170, 240, 86, 16, juce::Justification::centredLeft);
-        g.drawText("HI", 12, 280, 110, 16, juce::Justification::centredLeft);
-        g.drawText("LO", 130, 280, 110, 16, juce::Justification::centredLeft);
+        g.drawText("Leads", 12, 280, 228, 16, juce::Justification::centredLeft);
         g.drawText("NPLC", 248, 280, 70, 16, juce::Justification::centredLeft);
         g.drawText("Sa/s", 326, 280, 90, 16, juce::Justification::centredLeft);
+
+        drawProbeLead(g, dmmHiLead, "DMM+", juce::Colour(0xffffc857), dmmHighNet.getText().trim());
+        drawProbeLead(g, dmmLoLead, "DMM-", juce::Colour(0xff93a7b0), dmmLowNet.getText().trim());
+        drawProbeLead(g, scopeCh1Lead, "CH1", juce::Colour(0xff78dcca), scopeCh1Target);
+        drawProbeLead(g, scopeCh2Lead, "CH2", juce::Colour(0xffff6b6b), scopeCh2Target);
+
         area.removeFromTop(scopeZone.getY() - 12);
         g.setColour(juce::Colour(0xffdce9ee));
         g.setFont(juce::Font(15.0f, juce::Font::bold));
@@ -2059,6 +2123,20 @@ public:
         }
         g.setColour(juce::Colour(0xff78dcca));
         g.strokePath(wave, juce::PathStrokeType(2.0f));
+    }
+
+    void mouseDown(const juce::MouseEvent& event) override
+    {
+        const auto p = event.getPosition();
+        const auto probeId = probeAt(p);
+        if (probeId.isEmpty())
+            return;
+
+        if (probeIsInUse(probeId))
+            return;
+
+        if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this))
+            container->startDragging("probe:" + probeId, this);
     }
 
     void resized() override
@@ -2106,6 +2184,10 @@ public:
 
         area.removeFromTop(8);
         auto dmmNets = area.removeFromTop(32);
+        dmmHiLead = dmmNets.removeFromLeft(52);
+        dmmNets.removeFromLeft(6);
+        dmmLoLead = dmmNets.removeFromLeft(52);
+        dmmNets.removeFromLeft(8);
         dmmHighNet.setBounds(dmmNets.removeFromLeft(110));
         dmmNets.removeFromLeft(8);
         dmmLowNet.setBounds(dmmNets.removeFromLeft(110));
@@ -2128,6 +2210,8 @@ public:
         dmmContinuityBeep.setBounds(toggles.removeFromLeft(80));
         area.removeFromTop(10);
         scopeZone = juce::Rectangle<int>(8, area.getY(), getWidth() - 16, getHeight() - area.getY() - 8);
+        scopeCh1Lead = scopeZone.reduced(10).removeFromTop(34).removeFromRight(58);
+        scopeCh2Lead = scopeZone.reduced(10).removeFromTop(34).removeFromRight(120).removeFromRight(58);
     }
 
 private:
@@ -2161,6 +2245,61 @@ private:
         g.setColour(juce::Colour(0xff78dcca));
         g.setFont(juce::Font(11.5f, juce::Font::bold));
         g.drawText(label, area.reduced(8, 2).removeFromTop(16), juce::Justification::centredLeft);
+    }
+
+    static juce::Colour disabledProbeColour(juce::Colour colour)
+    {
+        return colour.withAlpha(0.22f);
+    }
+
+    void drawProbeLead(juce::Graphics& g,
+                       juce::Rectangle<int> area,
+                       const juce::String& label,
+                       juce::Colour colour,
+                       const juce::String& target)
+    {
+        if (area.isEmpty())
+            return;
+
+        const auto inUse = target.isNotEmpty() && target != "bench" && target != "probe";
+        const auto activeColour = inUse ? disabledProbeColour(colour) : colour;
+        auto body = area.toFloat().reduced(2.0f);
+        g.setColour(juce::Colour(0xff0e141a));
+        g.fillRoundedRectangle(body, 7.0f);
+        g.setColour(activeColour);
+        g.drawRoundedRectangle(body, 7.0f, 1.5f);
+
+        const auto jack = juce::Rectangle<float>(body.getX() + 7.0f, body.getCentreY() - 5.0f, 10.0f, 10.0f);
+        g.setColour(activeColour);
+        g.drawEllipse(jack, 1.6f);
+        if (!inUse)
+            g.fillEllipse(jack.reduced(3.0f));
+
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText(inUse ? "out" : label, area.withTrimmedLeft(20), juce::Justification::centredLeft, true);
+    }
+
+    juce::String probeAt(juce::Point<int> p) const
+    {
+        if (dmmHiLead.contains(p)) return "DMM_HI";
+        if (dmmLoLead.contains(p)) return "DMM_LO";
+        if (scopeCh1Lead.contains(p)) return "SCOPE_CH1";
+        if (scopeCh2Lead.contains(p)) return "SCOPE_CH2";
+        return {};
+    }
+
+    bool probeIsInUse(const juce::String& id) const
+    {
+        if (id == "DMM_HI") return !isProbeHome(dmmHighNet.getText().trim());
+        if (id == "DMM_LO") return !isProbeHome(dmmLowNet.getText().trim());
+        if (id == "SCOPE_CH1") return scopeCh1Target.isNotEmpty();
+        if (id == "SCOPE_CH2") return scopeCh2Target.isNotEmpty();
+        return true;
+    }
+
+    static bool isProbeHome(const juce::String& target)
+    {
+        return target.isEmpty() || target == "bench" || target == "probe";
     }
 
     void applySelectedPreset()
@@ -2213,6 +2352,12 @@ private:
     juce::ToggleButton dmmLowPass { "LPF" };
     juce::ToggleButton dmmLoZ { "LoZ" };
     juce::ToggleButton dmmContinuityBeep { "Beep" };
+    juce::String scopeCh1Target;
+    juce::String scopeCh2Target;
+    juce::Rectangle<int> dmmHiLead;
+    juce::Rectangle<int> dmmLoLead;
+    juce::Rectangle<int> scopeCh1Lead;
+    juce::Rectangle<int> scopeCh2Lead;
     juce::Rectangle<int> psuZone;
     juce::Rectangle<int> dmmZone;
     juce::Rectangle<int> meterOptionsZone;
@@ -2511,6 +2656,9 @@ ElectronicsWorkbench::ElectronicsWorkbench()
     };
     auto instruments = std::make_unique<InstrumentPanel>();
     auto* instrumentPanel = instruments.get();
+    schematicPanel->setProbeListener([instrumentPanel](juce::String id, juce::String, juce::String target) {
+        instrumentPanel->setProbeTarget(id, target);
+    });
     getCircuitJson = [panel = schematic.get()] { return panel->buildCircuitJson(); };
     getXyceNetlist = [panel = schematic.get()] { return panel->buildXyceNetlist(); };
     getLabInstrumentsJson = [instrumentPanel] { return instrumentPanel->buildInstrumentJson(); };
