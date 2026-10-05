@@ -5,6 +5,7 @@ add_library(djehuti_route
     src/grid.cpp
     src/cost_function.cpp
     src/router.cpp
+    src/autorouter.cpp
 )
 
 target_include_directories(djehuti_route PUBLIC include)
