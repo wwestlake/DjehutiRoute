@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace djehuti::route
 {
@@ -16,6 +17,56 @@ Coord Board::traceWidth(int net) const
 Coord Board::clearance(int netA, int netB) const
 {
     return std::max(clearance(netA), clearance(netB));
+}
+
+bool Board::contains(Point p) const
+{
+    if (outline.size() < 3 || !polygonContains(outline, p))
+        return false;
+    for (const auto& c : cutouts)
+        if (c.size() >= 3 && polygonContains(c, p))
+            return false;
+    return true;
+}
+
+double Board::edgeDistance(Point p) const
+{
+    double best = std::numeric_limits<double>::infinity();
+    auto edges = [&](const Polygon& poly) {
+        for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++)
+            best = std::min(best, pointSegmentDistance(p, poly[j], poly[i]));
+    };
+    if (outline.size() >= 2) edges(outline);
+    for (const auto& c : cutouts)
+        if (c.size() >= 2) edges(c);
+    return best;
+}
+
+double Board::edgeDistance(Point a, Point b) const
+{
+    double best = std::numeric_limits<double>::infinity();
+    auto edges = [&](const Polygon& poly) {
+        for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++)
+            best = std::min(best, segmentSegmentDistance(a, b, poly[j], poly[i]));
+    };
+    if (outline.size() >= 2) edges(outline);
+    for (const auto& c : cutouts)
+        if (c.size() >= 2) edges(c);
+    return best;
+}
+
+void Board::addHole(double xMm, double yMm, double diameterMm, int segments)
+{
+    segments = std::max(6, segments);
+    // Circumscribed polygon: its edges are tangent to the hole, so the hole is inside it.
+    const double r = diameterMm / 2.0 / std::cos(3.14159265358979323846 / segments);
+    Polygon hole;
+    for (int i = 0; i < segments; ++i)
+    {
+        const double a = 2.0 * 3.14159265358979323846 * i / segments;
+        hole.push_back({ mm(xMm + r * std::cos(a)), mm(yMm + r * std::sin(a)) });
+    }
+    cutouts.push_back(hole);
 }
 
 int Board::addNet(const std::string& name, int netClass)

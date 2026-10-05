@@ -12,6 +12,13 @@ An MIT, clean-room PCB routing library for the Djehuti tools.
   via costs; Prim-style trees for multi-pin nets; PathFinder negotiated
   congestion (real rip-up and reroute); output as polylines and through vias
   in nanometres.
+- **Board outlines** (`outline.h`): any straight-edged simple polygon (L, U,
+  T, hexagon, notched...), parametric shapes (rectangle, rounded and chamfered
+  corners, L, U, T, circle, regular polygon), standard boards with their
+  mounting holes (Eurocard sizes, Raspberry Pi HAT, Arduino Uno envelope,
+  credit card, 100 x 100 and 50 x 50 mm), cutouts and round holes through the
+  board, and outline/cutout validation. Routing and the DRC keep copper the
+  edge clearance from the outline and every cutout.
 - **Design-rule check** (`checkDesignRules`): exact geometry independent of the
   grid (clearance, shorts, edge, keepouts, open nets).
 - **Tests** (`tests/router_tests.cpp`): hand-calculated lengths and via counts,

@@ -49,8 +49,9 @@ struct Keepout
 struct Board
 {
     std::vector<std::string> layers { "F.Cu", "B.Cu" };
-    Polygon outline;
-    Coord edgeClearance = mm(0.3);
+    Polygon outline;                 // any simple polygon (straight edges, convex or not)
+    std::vector<Polygon> cutouts;    // holes through the board: mounting holes, slots, windows
+    Coord edgeClearance = mm(0.3);   // copper keeps this far from the outline and every cutout
     std::vector<NetClass> netClasses { NetClass {} };
     std::vector<Net> nets;
     std::vector<Pad> pads;
@@ -63,12 +64,21 @@ struct Board
     // Clearance two nets must keep: the larger of their classes'.
     Coord clearance(int netA, int netB) const;
 
+    // Inside the outline and not in a cutout.
+    bool contains(Point p) const;
+    // Distance to the nearest board edge (the outline or a cutout's edge).
+    double edgeDistance(Point p) const;
+    double edgeDistance(Point a, Point b) const;
+
     // Convenience builders (millimetres).
     int addNet(const std::string& name, int netClass = 0);
     int addRectBoard(double widthMm, double heightMm);
     void addSmdPad(const std::string& reference, double xMm, double yMm, double wMm, double hMm, int net, int layer = 0);
     void addRoundPad(const std::string& reference, double xMm, double yMm, double diameterMm, double drillMm, int net);
     void addKeepoutRect(double x0Mm, double y0Mm, double x1Mm, double y1Mm, int firstLayer = 0, int lastLayer = -1);
+    // A round hole through the board (non-plated mounting hole), as a polygon of `segments` sides
+    // circumscribing the circle, so the drilled hole lies inside it.
+    void addHole(double xMm, double yMm, double diameterMm, int segments = 32);
 };
 
 // IPC-2221 trace width for a current: area = (I / (k * dT^0.44))^(1/0.725)

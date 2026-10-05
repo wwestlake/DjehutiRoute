@@ -116,17 +116,16 @@ std::vector<Violation> checkDesignRules(const Board& board, const RouteResult& r
     for (size_t i = 0; i < firstPadItem; ++i)
     {
         const auto& it = items[i];
-        double edge = std::numeric_limits<double>::infinity();
-        for (size_t a = 0, b = board.outline.size() - 1; a < board.outline.size(); b = a++)
-            edge = std::min(edge, segmentSegmentDistance(it.a, it.b, board.outline[b], board.outline[a]));
-        const bool inside = polygonContains(board.outline, it.a) && polygonContains(board.outline, it.b);
+        // Outline and cutouts alike; a segment crossing an edge has distance 0.
+        const double edge = board.edgeDistance(it.a, it.b);
+        const bool inside = board.contains(it.a) && board.contains(it.b);
         if (!inside || edge - it.radius + 1.0 < (double)board.edgeClearance)
         {
             Violation v;
             v.kind = Violation::Kind::Edge;
             v.netA = it.net; v.layer = it.firstLayer; v.at = it.a;
             v.actualMm = (edge - it.radius) / (double)nmPerMm; v.requiredMm = toMm(board.edgeClearance);
-            v.message = "copper of " + netName(board, it.net) + " too close to the board edge";
+            v.message = "copper of " + netName(board, it.net) + " too close to the board edge or a cutout";
             violations.push_back(v);
         }
         for (const auto& k : board.keepouts)

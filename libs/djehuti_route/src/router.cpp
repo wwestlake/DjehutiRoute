@@ -73,22 +73,6 @@ void mark(int& slot, int net)
 
 bool allowed(int slot, int net) { return slot == freeCell || slot == net; }
 
-double edgeDistance(const Polygon& outline, Point p)
-{
-    double best = std::numeric_limits<double>::infinity();
-    for (size_t i = 0, j = outline.size() - 1; i < outline.size(); j = i++)
-        best = std::min(best, pointSegmentDistance(p, outline[j], outline[i]));
-    return best;
-}
-
-double edgeDistance(const Polygon& outline, Point a, Point b)
-{
-    double best = std::numeric_limits<double>::infinity();
-    for (size_t i = 0, j = outline.size() - 1; i < outline.size(); j = i++)
-        best = std::min(best, segmentSegmentDistance(a, b, outline[j], outline[i]));
-    return best;
-}
-
 struct Terminal
 {
     int cell = -1;
@@ -200,7 +184,7 @@ private:
     const Board& board;
     const RouterOptions& options;
     Grid grid;
-    std::vector<double> edgeDist;   // per xy, distance from the cell centre to the board edge
+    std::vector<double> edgeDist;   // per xy, distance from the cell centre to the nearest board edge (outline or cutout)
     std::vector<char> insideBoard;  // per xy
     std::map<std::tuple<Coord, Coord, Coord>, StaticMap> staticMaps;
     std::vector<int> usage;
@@ -245,8 +229,8 @@ private:
             for (int x = 0; x < grid.w; ++x)
             {
                 const auto c = grid.centre(x, y);
-                insideBoard[(size_t)grid.xy(x, y)] = polygonContains(board.outline, c) ? 1 : 0;
-                edgeDist[(size_t)grid.xy(x, y)] = edgeDistance(board.outline, c);
+                insideBoard[(size_t)grid.xy(x, y)] = board.contains(c) ? 1 : 0;
+                edgeDist[(size_t)grid.xy(x, y)] = board.edgeDistance(c);
             }
 
         const auto states9 = (size_t)grid.cells() * states;
@@ -394,7 +378,7 @@ private:
                         if (segmentPolygonDistance(a, b, board.keepouts[(size_t)ref.index].area) < halfWidth) return false;
                         break;
                     case ObstacleRef::Type::Edge:
-                        if (edgeDistance(board.outline, a, b) < halfWidth + board.edgeClearance) return false;
+                        if (board.edgeDistance(a, b) < halfWidth + board.edgeClearance) return false;
                         break;
                 }
             }

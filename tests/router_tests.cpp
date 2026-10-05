@@ -8,6 +8,7 @@
 
 #include "djehuti_route/board.h"
 #include "djehuti_route/drc.h"
+#include "djehuti_route/outline.h"
 #include "djehuti_route/router.h"
 
 #include <cmath>
@@ -231,6 +232,97 @@ int main()
             check(r.routedConnections >= s.routedConnections, "random board " + std::to_string(seed) + ": negotiation routes at least as much as one pass");
         }
         std::printf("      totals: negotiated %d/%d, single pass %d/%d\n", negotiatedTotal, connectionsTotal, singleTotal, connectionsTotal);
+    }
+
+    // 9. Outline shapes, areas by hand:
+    //    L 40 x 30 less a 15 x 10 notch = 1200 - 150 = 1050; U with a 10 x 12 slot = 1080;
+    //    T bar 40 x 10 on a 10 x 25 stem = 650; chamfered 40 x 30, 5 mm = 1200 - 4 * 12.5 = 1150;
+    //    rounded 40 x 30, r 5, 8 chords per corner = 1200 - 4 r^2 + 4 * (8 * r^2 sin(pi/16) / 2) = 1178.0361;
+    //    circle d 20 as 64 chords = 32 * 100 * sin(2 pi / 64) = 313.6548;
+    //    hexagon, corners on d 40: (3 sqrt3 / 2) * 20^2 = 1039.2305, 34.6410 mm tall;
+    //    hexagon 20 mm across flats: 200 sqrt3 = 346.4102.
+    {
+        namespace o = djehuti::route::outline;
+        checkNear(o::areaMm2(o::lShape(40, 30, 15, 10)), 1050.0, 1e-6, "outline: L area (mm^2)");
+        checkNear(o::areaMm2(o::uShape(40, 30, 10, 12)), 1080.0, 1e-6, "outline: U area (mm^2)");
+        checkNear(o::areaMm2(o::tShape(40, 10, 10, 25)), 650.0, 1e-6, "outline: T area (mm^2)");
+        checkNear(o::areaMm2(o::chamferedRectangle(40, 30, 5)), 1150.0, 1e-6, "outline: chamfered area (mm^2)");
+        checkNear(o::areaMm2(o::roundedRectangle(40, 30, 5, 8)), 1178.0361, 1e-3, "outline: rounded-corner area (mm^2)");
+        checkNear(o::areaMm2(o::circle(20, 64)), 313.6548, 1e-3, "outline: circle area (mm^2)");
+        const auto hex = o::regularPolygon(6, 40);
+        checkNear(o::areaMm2(hex), 1039.2305, 1e-3, "outline: hexagon area (mm^2)");
+        checkNear(toMm(boundsOf(hex).maxY - boundsOf(hex).minY), 34.6410, 1e-3, "outline: hexagon height (mm)");
+        checkNear(o::areaMm2(o::regularPolygonAcrossFlats(6, 20)), 346.4102, 1e-3, "outline: hexagon by flats area (mm^2)");
+        check(o::validate(hex).empty(), "outline: hexagon is valid");
+        const Polygon bowtie { { 0, 0 }, { mm(10), mm(10) }, { mm(10), 0 }, { 0, mm(10) } };
+        check(!o::validate(bowtie).empty() && o::validate(bowtie)[0].find("cross") != std::string::npos, "outline: a self-crossing outline is rejected as crossing", "(" + (o::validate(bowtie).empty() ? std::string() : o::validate(bowtie)[0]) + ")");
+        const auto box = o::rectangle(40, 30);
+        Polygon outside { { mm(35), mm(25) }, { mm(45), mm(25) }, { mm(45), mm(28) }, { mm(35), mm(28) } };
+        check(!o::validateCutouts(box, { outside }).empty(), "outline: a cutout off the board is rejected");
+        Polygon a { { mm(5), mm(5) }, { mm(15), mm(5) }, { mm(15), mm(15) }, { mm(5), mm(15) } };
+        Polygon b2 { { mm(10), mm(10) }, { mm(20), mm(10) }, { mm(20), mm(20) }, { mm(10), mm(20) } };
+        check(!o::validateCutouts(box, { a, b2 }).empty(), "outline: overlapping cutouts are rejected");
+        check(o::validateCutouts(box, { a }).empty(), "outline: a cutout inside the board is accepted");
+        const auto* hat = findStandardBoard("rpi-hat");
+        check(hat != nullptr && hat->holes.size() == 4, "standard: Raspberry Pi HAT has 4 holes");
+        if (hat != nullptr)
+        {
+            checkNear(toMm(boundsOf(hat->outline).maxX), 65.0, 1e-6, "standard: HAT width (mm)");
+            checkNear(toMm(boundsOf(hat->outline).maxY), 56.5, 1e-6, "standard: HAT height (mm)");
+            checkNear(toMm(hat->holes[1].centre.x - hat->holes[0].centre.x), 58.0, 1e-6, "standard: HAT hole spacing x (mm)");
+            checkNear(toMm(hat->holes[2].centre.y - hat->holes[0].centre.y), 49.0, 1e-6, "standard: HAT hole spacing y (mm)");
+        }
+    }
+
+    // 10. Odd boards. An L (40 x 30 less the 20 x 15 top-right notch) with pads in its two arms:
+    //     the straight line between them passes exactly through the notch corner (20, 15), so the
+    //     route must bend around it and stay inside. A hexagon with a route along a slanted edge.
+    //     A window cut out of a 40 x 30 board between two pads forces a detour longer than the
+    //     straight 30 mm. All DRC clean against the true (slanted / cut-out) edges.
+    {
+        Board l;
+        l.outline = outline::lShape(40, 30, 20, 15);
+        const auto n = l.addNet("A");
+        l.addSmdPad("P1", 5, 25, 1, 1, n);
+        l.addSmdPad("P2", 35, 5, 1, 1, n);
+        const auto r = routeBoard(l);
+        check(r.routedConnections == 1, "L board: routed", r.error);
+        requireClean(l, r, "L board");
+
+        Board h;
+        h.outline = outline::regularPolygon(6, 40); // corners (40,17.32) (30,34.64) (10,34.64) (0,17.32) (10,0) (30,0)
+        const auto m = h.addNet("A");
+        const auto k = h.addNet("B");
+        h.addSmdPad("A1", 4, 19, 1, 1, m);   // 2.6 mm in from the upper-left slanted edge
+        h.addSmdPad("A2", 10, 29, 1, 1, m);  // 2.8 mm in from the same edge
+        h.addSmdPad("B1", 8, 10, 1, 1, k);
+        h.addSmdPad("B2", 32, 24, 1, 1, k);
+        const auto rh = routeBoard(h);
+        check(rh.routedConnections == 2, "hexagon board: routed", rh.error);
+        requireClean(h, rh, "hexagon board");
+
+        Board w;
+        w.addRectBoard(40, 30);
+        w.cutouts.push_back({ { mm(15), mm(5) }, { mm(25), mm(5) }, { mm(25), mm(25) }, { mm(15), mm(25) } });
+        const auto c = w.addNet("A");
+        w.addSmdPad("P1", 5, 15, 1, 1, c);
+        w.addSmdPad("P2", 35, 15, 1, 1, c);
+        const auto rw = routeBoard(w);
+        check(rw.routedConnections == 1, "cutout board: routed around the window");
+        check(rw.trackLengthMm() > 30.0, "cutout board: longer than the blocked straight line", "(" + std::to_string(rw.trackLengthMm()) + " mm)");
+        requireClean(w, rw, "cutout board");
+
+        // A standard board with its mounting holes as cutouts; a net passing between two holes.
+        Board hat;
+        const auto* spec = findStandardBoard("rpi-hat");
+        hat.outline = spec->outline;
+        for (const auto& hl : spec->holes) hat.addHole(toMm(hl.centre.x), toMm(hl.centre.y), toMm(hl.diameter));
+        const auto s = hat.addNet("S");
+        hat.addSmdPad("S1", 3.5, 10, 1, 1, s);
+        hat.addSmdPad("S2", 61.5, 10, 1, 1, s);
+        const auto rhat = routeBoard(hat);
+        check(rhat.routedConnections == 1, "HAT board with mounting holes: routed");
+        requireClean(hat, rhat, "HAT board with mounting holes");
     }
 
     std::printf("\n%s: %d failure(s)\n", failures == 0 ? "ALL PASSED" : "FAILED", failures);
