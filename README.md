@@ -1,66 +1,39 @@
 # DjehutiRoute
 
-DjehutiRoute is a mixed-license research workspace for electronics design tools,
-PCB routing, and manufacturable board output.
+An MIT, clean-room PCB routing library for the Djehuti tools.
 
-The long-term goal is a clean, open routing engine that can support hobby and
-professional workflows without inheriting GPL implementation constraints from
-existing autorouters.
+## What works
 
-## Goals
+- **Board model**: copper stackup, net classes (width, clearance, via size),
+  SMD and through-hole pads, keepouts, board outline, per-net widths
+  (IPC-2221 width from a net's current).
+- **Autorouter** (`routeBoard`): a grid at the default class's track pitch with
+  exact clearance checks against pads, keepouts and the edge; A* with bend and
+  via costs; Prim-style trees for multi-pin nets; PathFinder negotiated
+  congestion (real rip-up and reroute); output as polylines and through vias
+  in nanometres.
+- **Design-rule check** (`checkDesignRules`): exact geometry independent of the
+  grid (clearance, shorts, edge, keepouts, open nets).
+- **Tests** (`tests/router_tests.cpp`): hand-calculated lengths and via counts,
+  IPC-2221 widths, DRC self-checks, and random 2-layer boards that must route
+  with zero DRC violations.
+- **Demo** (`examples/router_demo`): routes a generated board and writes an SVG.
 
-- MIT open-source PCB routing library.
-- Standalone demo applications for routing experiments.
-- Integration with the Djehuti Electronics Lab research tool.
-- Multi-layer board routing.
-- Industry-standard manufacturing outputs, including Gerber, Excellon, and
-  eventually IPC-2581.
-- Clean data models that can be driven by agents, scripts, graphical tools, and
-  conventional UI workflows.
+Design and roadmap: `docs/ROUTER_ARCHITECTURE.md`. Requirements:
+`docs/ROUTER_REQUIREMENTS.md`.
 
-## Repository Layout
-
-- `libs/djehuti_route` - planned router library.
-- `examples` - small demos and experiments.
-- `apps/DjehutiElectronicsLab` - GPL-3.0 electronics design tool research app.
-- `docs` - architecture notes, requirements, and process notes.
-
-## Routing Direction
-
-The router should grow in stages:
-
-1. Board, layer, pad, via, obstacle, and net data model.
-2. Design-rule model for clearance, trace width, vias, layers, and net classes.
-3. Single-net interactive routing.
-4. A*/maze routing with via costs.
-5. Rip-up and retry.
-6. Multi-layer automatic routing.
-7. Differential pairs, length matching, pours, and tuning.
-8. Manufacturing export.
-
-The implementation should be clean-room MIT code. Existing open-source routers
-can be studied conceptually, but GPL implementation code must not be copied.
-
-## Electronics Lab
-
-The electronics design tool currently lives under:
+## Build (Windows)
 
 ```text
-apps/DjehutiElectronicsLab
+cmake -S . -B build-vs -G "Visual Studio 17 2022" -A x64
+cmake --build build-vs --config Debug --target router_tests -- /m:1
+build-vs\Debug\router_tests.exe
 ```
 
-It is a research shell for schematic capture, component data, simulation
-adapters, sourcing records, and agent-assisted electronics workflows.
+A host project adds the library with `add_subdirectory(<DjehutiRoute>)` and
+links `djehuti_route`; tests and the demo are built only standalone.
 
-## License
+## Licence
 
-This repository is intentionally mixed-license:
-
-- `libs/djehuti_route`, router demos, and general routing architecture are MIT
-  unless a file says otherwise.
-- `apps/DjehutiElectronicsLab` is GPL-3.0 because it is the SPICE/Xyce-oriented
-  electronics tool.
-
-See `LICENSE` for the top-level MIT license and
-`apps/DjehutiElectronicsLab/LICENSE` for the GPL-3.0 electronics tool license.
-The boundary is documented in `docs/LICENSING.md`.
+MIT (see `LICENSE`). Clean-room: GPL implementation code is never copied or
+consulted.

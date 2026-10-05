@@ -1,13 +1,16 @@
-add_library(djehuti_route
-    src/constraints.cpp
-    src/industrial.cpp
-    src/design_advisor.cpp
-    src/grid.cpp
-    src/cost_function.cpp
+add_library(djehuti_route STATIC
+    include/djehuti_route/geometry.h
+    include/djehuti_route/board.h
+    include/djehuti_route/router.h
+    include/djehuti_route/drc.h
+    src/geometry.cpp
+    src/board.cpp
     src/router.cpp
-    src/autorouter.cpp
+    src/drc.cpp
 )
 
 target_include_directories(djehuti_route PUBLIC include)
-
-# Optional: target_link_libraries if we had dependencies
+target_compile_features(djehuti_route PUBLIC cxx_std_20)
+if(MSVC)
+    target_compile_options(djehuti_route PRIVATE /W4 /permissive-)
+endif()
