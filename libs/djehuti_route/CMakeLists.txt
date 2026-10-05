@@ -3,6 +3,7 @@ add_library(djehuti_route
     src/industrial.cpp
     src/design_advisor.cpp
     src/grid.cpp
+    src/cost_function.cpp
 )
 
 target_include_directories(djehuti_route PUBLIC include)
