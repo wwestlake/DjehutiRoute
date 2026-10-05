@@ -4,6 +4,7 @@ add_library(djehuti_route
     src/design_advisor.cpp
     src/grid.cpp
     src/cost_function.cpp
+    src/router.cpp
 )
 
 target_include_directories(djehuti_route PUBLIC include)
